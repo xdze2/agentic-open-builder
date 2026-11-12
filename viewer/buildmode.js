@@ -2,16 +2,21 @@
 // BOM, hover/click naming (instance, port, hole) and live reload (Vite HMR event 'assemblies-changed').
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { solve, AsmError } from '../lib/assembly.js';
+import { solve, AsmError, findPort } from '../lib/assembly.js';
 import * as m4 from '../lib/mat.js';
 import { vslotGeometry } from './vslot.js';
 import { slotsOf, FACES } from '../lib/vslot_ports.js';
+import { edgePorts } from '../lib/assembly.js';
+import { createPrompt, short, portWords } from './prompt.js';
 
 export function createBuild(ctx) {
-  const { $, scene, camera, renderer, makeGrid, frame, colorOfType } = ctx;
+  const { $, scene, camera, renderer, controls, makeGrid, frame, colorOfType } = ctx;
   const group = new THREE.Group();
   const marker = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffee00, depthTest: false }));
   marker.renderOrder = 20; marker.visible = false;
+  const edgeLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), new THREE.LineBasicMaterial({ color: 0xffee00, depthTest: false }));
+  edgeLine.renderOrder = 21; edgeLine.visible = false; edgeLine.frustumCulled = false;
+  const EDGE_TOL = 4; // mm: a click this close to a plate edge selects the edge instead of the face
   const geoCache = new Map(), defCache = new Map();
   let file = null, asm = null, res = null, meshes = new Map(), overrides = {}, selected = null, framed = null;
   const highlight = new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0x661122, roughness: 0.4 });
@@ -59,7 +64,7 @@ export function createBuild(ctx) {
     }
     for (const inst of res.instances) { const m = meshes.get(inst.name); m.matrix.copy(toMatrix(inst.M)); m.matrixWorldNeedsUpdate = true; }
     group.updateMatrixWorld(true);
-    renderPanel();
+    renderPanel(); hover(null); prompt.refresh();
     if (!keepCamera || framed !== file) { const box = new THREE.Box3().setFromObject(group); makeGrid(box); frame(box); framed = file; }
   }
 
@@ -105,28 +110,111 @@ export function createBuild(ctx) {
         out.refs.push(`${nm}.${face}_slot_${slot.index}@${f2(p[2])}`);
       }
     }
-    if (best && best.d < 12) { out.port = best; out.refs.unshift(`${nm}.${best.extra?.hole ? `${best.extra.face}:${best.extra.hole.name}` : best.label}`); }
+    if (def.type === 'plate' && def.bbox) { // plate edges: bounding-rectangle sides, plate-local
+      const { min, max } = def.bbox;
+      let eb = null;
+      for (const e of edgePorts(def)) {
+        const ax = e.z[0] ? 0 : 1, oax = 1 - ax, d = Math.abs(p[ax] - e.origin[ax]);
+        if (p[oax] < min[oax] - EDGE_TOL || p[oax] > max[oax] + EDGE_TOL || p[2] < min[2] - EDGE_TOL || p[2] > max[2] + EDGE_TOL) continue;
+        if (d <= EDGE_TOL && (!eb || d < eb.d)) eb = { d, e };
+      }
+      if (eb) { out.edge = eb; out.refs.unshift(`${nm}.${eb.e.name}`); }
+    }
+    if (best && best.d < 12 && !out.edge) { out.port = best; out.refs.unshift(`${nm}.${best.extra?.hole ? `${best.extra.face}:${best.extra.hole.name}` : best.label}`); }
+    // the chip: edge (<4 mm) > port / hole (<5 mm) > the whole instance
+    if (out.edge) out.sel = { ref: `${nm}.${out.edge.e.name}`, label: `${short(nm)} › ${portWords(out.edge.e.name)}` };
+    else if (best && best.d < 5) out.sel = { ref: out.refs[0], label: `${short(nm)} › ${best.extra?.hole ? 'hole ' + best.extra.hole.name : best.label}` };
+    else out.sel = { ref: nm, label: short(nm) };
     if (def.holes) out.refs.push(`${nm}.${Math.abs(p[2]) < Math.abs(p[2] - def.dims[2]) ? 'front' : 'back'}@${f2(p[0])},${f2(p[1])}`);
     return out;
   }
-  function show(hit) {
+  function show(hit, silent) {
     if (selected) selected.material = matFor(res.instances.find((i) => i.name === selected.userData.name).def.type);
-    if (!hit) { selected = null; marker.visible = false; $('info').textContent = 'Click a part.'; return; }
+    if (!hit) { selected = null; marker.visible = false; edgeLine.visible = false; $('info').textContent = 'Click a part.'; return; }
     selected = hit.object; selected.material = highlight;
     const d = describeHit(hit), copy = (s) => `<div class="copy" title="click to copy">${s}</div>`;
     $('info').innerHTML = `<b>${d.name}</b><br>part: ${d.def.slug}<br>type: ${d.def.type}${d.def.profile ? ` (${d.def.profile}${d.def.length ? `, parametric, cut ${d.def.length} mm` : ' library mesh'})` : ''}<br>` +
       `hit (part frame): ${d.p.map(f2).join(', ')}<br>` +
-      (d.port ? `nearest port: <b>${d.port.label}</b> (${f2(d.port.d)} mm away${d.port.extra?.hole ? `, hole d${d.port.extra.hole.d}` : ''})<br>` : '') +
+      (d.edge ? `edge <b>${d.edge.e.name}</b> (${f2(d.edge.d)} mm away, length ${f2(d.edge.e.length)} mm)<br>` : '') +
+      (d.port && !d.edge ? `nearest port: <b>${d.port.label}</b> (${f2(d.port.d)} mm away${d.port.extra?.hole ? `, hole d${d.port.extra.hole.d}` : ''})<br>` : '') +
       (d.rail ? `rail face <b>${d.rail.face}</b>, slot ${d.rail.slot}${d.rail.onSlot ? '' : ' (hit is off the slot line)'}, <b>${d.rail.at}</b> mm from end_a<br>` : '') +
       '<br>JSON refs (click to copy):' + d.refs.map(copy).join('') + copy(`"${d.name}"`);
     $('info').querySelectorAll('.copy').forEach((el) => (el.onclick = () => navigator.clipboard?.writeText(el.textContent.replace(/^"|"$/g, (m) => m)).catch(() => {})));
-    if (d.port && $('b-ports').checked) {
+    edgeLine.visible = false;
+    if (d.edge) {
+      const inst = res.instances.find((i) => i.name === d.name), e = d.edge.e, h = e.length / 2;
+      const a = m4.point(inst.M, e.origin.map((c, k) => c - e.x[k] * h)), b = m4.point(inst.M, e.origin.map((c, k) => c + e.x[k] * h));
+      edgeLine.geometry.setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]); edgeLine.visible = true; marker.visible = false;
+    } else if (d.port && $('b-ports').checked) {
       const inst = res.instances.find((i) => i.name === d.name), w = m4.point(inst.M, d.port.o);
       marker.position.set(...w); marker.scale.setScalar(1.8); marker.visible = true;
     } else marker.visible = false;
-    window.__viewer.lastHit = d.refs;
+    window.__viewer.lastHit = d.refs; window.__viewer.lastSel = d.sel;
+    if (!silent) prompt.pick(d.sel);
   }
 
+  // ---- chips <-> 3D: resolve a ref, hover glow, click = select + frame ----
+  const hoverMat = new THREE.MeshStandardMaterial({ color: 0xffd34d, emissive: 0x996600, roughness: 0.4 });
+  const hoverMarker = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0x00e5ff, depthTest: false }));
+  hoverMarker.renderOrder = 22; hoverMarker.visible = false;
+  const hoverLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), new THREE.LineBasicMaterial({ color: 0xffee00, depthTest: false }));
+  hoverLine.renderOrder = 23; hoverLine.visible = false; hoverLine.frustumCulled = false;
+  let hovered = null;
+  /** ref -> {inst, mesh, color, kind, point?, edge?} ; null = does not exist now ; undefined = nothing solved yet */
+  function resolveRef(ref) {
+    if (!res) return undefined;
+    const dot = ref.indexOf('.'), path = dot < 0 ? ref : ref.slice(0, dot), inst = res.instances.find((i) => i.name === path), mesh = inst && meshes.get(path);
+    if (!inst || !mesh) return null;
+    const out = { inst, mesh, color: '#' + new THREE.Color(colorOfType(inst.def.type)).getHexString() };
+    if (dot < 0) return out;
+    try {
+      const p = findPort(inst.def, ref.slice(dot + 1));
+      out.point = m4.point(inst.M, p.origin);
+      if (/^edge_/.test(p.name)) { const h = p.length / 2; out.edge = [m4.point(inst.M, p.origin.map((c, k) => c - p.x[k] * h)), m4.point(inst.M, p.origin.map((c, k) => c + p.x[k] * h))]; }
+    } catch (e) { return null; }
+    return out;
+  }
+  const restoreMat = (mesh) => { const i = res.instances.find((q) => q.name === mesh.userData.name); if (i) mesh.material = mesh === selected ? highlight : matFor(i.def.type); };
+  function hover(ref) {
+    if (hovered) { restoreMat(hovered); hovered = null; }
+    hoverMarker.visible = hoverLine.visible = false;
+    const r = ref && active ? resolveRef(ref) : null;
+    if (!r) return;
+    hovered = r.mesh; r.mesh.material = hoverMat;
+    if (r.edge) { hoverLine.geometry.setFromPoints(r.edge.map((q) => new THREE.Vector3(...q))); hoverLine.visible = true; }
+    else if (r.point) { hoverMarker.position.set(...r.point); hoverMarker.scale.setScalar(2.2); hoverMarker.visible = true; }
+  }
+  let fly = 0;
+  function flyTo(box) {
+    const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
+    const dist = Math.max(size.length() / 2, 25) / Math.sin((camera.fov * Math.PI) / 360) * 1.1;
+    const dir = camera.position.clone().sub(controls.target).normalize();
+    const p0 = camera.position.clone(), t0 = controls.target.clone(), p1 = center.clone().addScaledVector(dir, dist);
+    camera.near = Math.max(Math.min(camera.near, dist / 1000), 0.1); camera.far = Math.max(camera.far, dist * 20); camera.updateProjectionMatrix();
+    const id = ++fly, T = performance.now();
+    (function step(now) {
+      if (id !== fly) return;
+      const k = Math.min(1, (now - T) / 450), e = k * k * (3 - 2 * k);
+      camera.position.lerpVectors(p0, p1, e); controls.target.lerpVectors(t0, center, e); controls.update();
+      if (k < 1) requestAnimationFrame(step);
+    })(T);
+  }
+  addEventListener('pointerdown', () => { fly++; }, true); // the user grabbed the camera: stop animating
+  function focus(ref) {
+    const r = resolveRef(ref); if (!r) return;
+    const box = new THREE.Box3();
+    if (r.edge) r.edge.forEach((q) => box.expandByPoint(new THREE.Vector3(...q)));
+    else if (r.point) box.expandByPoint(new THREE.Vector3(...r.point));
+    else box.setFromObject(r.mesh);
+    if (r.point) box.expandByScalar(15);
+    let pt = r.point ? new THREE.Vector3(...r.point) : box.getCenter(new THREE.Vector3());
+    if (!r.point) { const { min, max } = r.inst.def.bbox || { min: [0, 0, 0], max: [0, 0, 0] }; pt = new THREE.Vector3(...m4.point(r.inst.M, [0, 1, 2].map((k) => (min[k] + max[k]) / 2))); }
+    hover(null);
+    show({ object: r.mesh, point: pt }, true);
+    window.__viewer.lastFocus = ref;
+    flyTo(box);
+  }
+  const prompt = createPrompt({ $, getResult: () => res, getFile: () => file, hooks: { resolve: resolveRef, hover, focus } });
   const ray = new THREE.Raycaster();
   const hitAt = (cx, cy) => { ray.setFromCamera(new THREE.Vector2((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1), camera); return ray.intersectObjects(group.children, false)[0]; };
   addEventListener('pointermove', (e) => {
@@ -140,12 +228,12 @@ export function createBuild(ctx) {
   let active = false;
   async function enter(initialFile) {
     active = true;
-    scene.add(group, marker);
+    scene.add(group, marker, edgeLine, hoverMarker, hoverLine); $('pr-dock').hidden = false;
     const files = await listFiles();
     if (!files.length) { $('b-err').textContent = 'No assemblies/*.json'; return; }
     await open(initialFile && files.includes(initialFile) ? initialFile : file && files.includes(file) ? file : files.includes('plotter.json') ? 'plotter.json' : files[0]);
   }
-  function leave() { active = false; scene.remove(group, marker); $('tip').hidden = true; }
+  function leave() { hover(null); active = false; $('pr-dock').hidden = true; scene.remove(group, marker, edgeLine, hoverMarker, hoverLine); $('tip').hidden = true; }
   async function open(f) {
     file = f; overrides = {}; renderPanel.sig = null; rebuild.names = null; framed = null;
     $('b-file').value = f;
@@ -166,5 +254,5 @@ export function createBuild(ctx) {
   };
   if (import.meta.hot) import.meta.hot.on('assemblies-changed', (d) => { reload().catch(console.error); });
 
-  return { group, enter, leave, hitAt, show, isActive: () => active, setState: (s) => { Object.assign(overrides, s); return rebuild(true); }, get result() { return res; } };
+  return { prompt, group, enter, leave, hitAt, show, isActive: () => active, setState: (s) => { Object.assign(overrides, s); return rebuild(true); }, get result() { return res; } };
 }

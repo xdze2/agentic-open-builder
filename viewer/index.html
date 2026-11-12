@@ -29,7 +29,28 @@
     #b-mounts { font-size: 12px; line-height: 1.4; word-break: break-word; }
     #tip { position: fixed; pointer-events: none; background: #000c; color: #fff; padding: 3px 7px; border-radius: 3px; font-size: 12px; z-index: 5; }
     .copy { background: #1b1d22; padding: 2px 5px; border-radius: 3px; cursor: pointer; user-select: all; display: inline-block; margin: 1px 0; font-family: monospace; color: #ffee88; }
-    #hint { position: fixed; left: 12px; bottom: 10px; color: #8a93a3; }
+    #pr-dock { position: fixed; left: 12px; bottom: 12px; width: min(680px, calc(100vw - 280px - 36px)); display: flex; flex-direction: column; gap: 6px; z-index: 4; pointer-events: none; }
+    #pr-dock > * { pointer-events: auto; }
+    #pr-dock[hidden] { display: none; }
+    #pr-recent { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; color: #9aa; align-self: flex-start; max-width: 100%; direction: ltr; }
+    #pr-recent > i { background: #15171acc; padding: 2px 8px; border-radius: 10px; }
+    #pr-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; background: #23262df2; border: 1px solid #4a4f5a; border-radius: 10px; padding: 6px; box-shadow: 0 4px 18px #0008; }
+    .chip { --c: #8aa0c0; display: inline-flex; align-items: center; gap: 4px; background: color-mix(in srgb, var(--c) 22%, #fff); color: #1a1d22; border: 1px solid color-mix(in srgb, var(--c) 55%, #fff); border-left: 5px solid var(--c); border-radius: 4px 10px 10px 4px; padding: 0 8px 0 5px; margin: 0 1px; font-size: 12px; line-height: 18px; white-space: nowrap; cursor: pointer; vertical-align: baseline; }
+    .chip .ic { color: color-mix(in srgb, var(--c) 55%, #000); font-weight: 700; font-size: 12px; }
+    .chip:hover { filter: brightness(0.93); outline: 1px solid var(--c); }
+    .chip.stale { --c: #999 !important; background: #d8d8d8; color: #777; border-style: dashed; text-decoration: line-through; cursor: help; }
+    .chip.stale::after { content: '\26A0'; color: #b36b00; text-decoration: none; }
+    button.chip.sug { font-family: inherit; }
+    #pr-wrap { position: relative; flex: 1 1 220px; min-width: 0; }
+    #pr-box { min-height: 1.7em; max-height: 6.8em; overflow: auto; background: #15171a; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; line-height: 1.7; outline: none; white-space: pre-wrap; word-break: break-word; }
+    #pr-box:empty::before { content: attr(data-placeholder); color: #667; }
+    #pr-box:focus { border-color: #4f8fd6; }
+    #pr-pop { position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 4px; z-index: 6; background: #2e323b; border: 1px solid #555; max-height: 200px; overflow: auto; }
+    #pr-pop .it { padding: 2px 8px; cursor: pointer; font-family: monospace; font-size: 12px; } #pr-pop .it.on, #pr-pop .it:hover { background: #4f8fd6; color: #fff; }
+    #pr-btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    #pr-btns button { padding: 6px 10px; background: #4f8fd6; color: #fff; border: 0; border-radius: 6px; cursor: pointer; } #pr-btns button#pr-clear { background: #3a3e48; }
+    @media (max-width: 640px) { #panel { width: 190px; } #pr-dock { width: calc(100vw - 190px - 28px); } }
+    #hint { position: fixed; left: 12px; top: 8px; color: #8a93a3; }
   </style>
 </head>
 <body>
@@ -63,6 +84,16 @@
     <label><input type="checkbox" id="t-grid" checked> Grid</label>
     <h3>Selection</h3>
     <div id="info">Click a part.</div>
+  </div>
+  <div id="pr-dock" hidden>
+    <div id="pr-recent"></div>
+    <div id="pr-row">
+      <div id="pr-wrap">
+        <div id="pr-box" contenteditable="true" spellcheck="false" data-placeholder="Ask for a change. Click things in 3D to insert them, or type @ to pick an instance."></div>
+        <div id="pr-pop" hidden></div>
+      </div>
+      <div id="pr-btns"><button id="pr-copy" type="button">Copy prompt</button><button id="pr-clear" type="button">Clear</button><span id="pr-status"></span></div>
+    </div>
   </div>
   <div id="tip" hidden></div>
   <div id="hint"></div>

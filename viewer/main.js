@@ -192,7 +192,7 @@ function setMode(m, noDefault = false, buildFile) {
     if (model) { scene.remove(model); model = null; parts = []; }
     if (partGroup) { scene.remove(partGroup); partGroup = null; }
     select(null); worldAxes.visible = $('t-world').checked;
-    build ||= createBuild({ $, scene, camera, renderer, makeGrid, frame, colorOfType });
+    build ||= createBuild({ $, scene, camera, renderer, controls, makeGrid, frame, colorOfType });
     build.enter(buildFile).catch(console.error);
   } else if (m === 'asm') {
     if (partGroup) { scene.remove(partGroup); partGroup = null; }
@@ -290,4 +290,4 @@ else if (hash) {
   initParts().then(() => (hash[1].startsWith('vslot-') ? loadParametric(hash[1].slice(6)) : loadPart(hash[1]))).catch(console.error);
 } else if (modelNames.length) load(modelNames[0]).catch((e) => console.error(e));
 else $('info').textContent = 'No models found in models/.';
-window.__viewer = { setClip: (z) => { renderer.localClippingEnabled = false; renderer.clippingPlanes = z === null ? [] : [new THREE.Plane(new THREE.Vector3(0, 0, -1), -z)]; }, get build() { return build; }, camera, controls, load, setMode, loadPart, loadParametric, get parts() { return parts; }, select };
+window.__viewer = { setClip: (z) => { renderer.localClippingEnabled = false; renderer.clippingPlanes = z === null ? [] : [new THREE.Plane(new THREE.Vector3(0, 0, -1), -z)]; }, get build() { return build; }, get prompt() { return build?.prompt; }, camera, controls, load, setMode, loadPart, loadParametric, get parts() { return parts; }, select };

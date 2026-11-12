@@ -56,6 +56,8 @@ Plate-local frame: origin at the plate centre, **x** along the longest side (127
   - `front@-20,0.5` = nearest hole to plate-local coordinates (snaps within 2 mm; otherwise a free point on the face).
   - Diameters on the 20-80 gantry plate: 5.1 mm (M5 clearance) on a ~10 mm grid, 7.1 mm eccentric-spacer holes at x = -19.85 .. -49.85 (rows y = 0, +-30.32), and larger openings (8.57, 23.29) which fasteners ignore.
 
+- **Edges**: every plate also has four edge ports on the side faces of its bounding rectangle (plate-local, computed in `lib/assembly.js` `edgePorts`, resolved by `findPort` like any port): `edge_+x`, `edge_-x`, `edge_+y`, `edge_-y`. Origin = midpoint of the side face (mid thickness), `z` = outward normal (so a mate puts a part face to face on the edge), `x` = direction along the edge (+y for the x edges, +x for the y edges). `edge_+y@10` slides 10 mm along it. Note `+x/+y` are PLATE-local: on the gantry plate in the standard pose plate +y points along world +X (the copied prompt also gives the world midpoint, direction and outward normal). Rails have no long-edge ports yet (only `end_a`/`end_b` and the face/slot ports).
+
 ### Motor (nema17-40)
 `face` = mounting face (z toward the shaft), `shaft` = shaft tip, `hole_1..4` = M3 holes (31 mm pitch). Body 40 mm (`bbox z -40 .. 24`).
 
@@ -115,3 +117,11 @@ What a mount does: puts the rail face on the plate face (with `direction`, `line
    `"fasten": {"count": 2, "holes": ["front@-20,0", "front@-50,0"]}` (the screw still enters from the far face).
 5. "Put a motor on the gantry mount plate." (low level mate)
    `{"a": "motor.face", "b": "mount.motor"}`; "a pulley 9 mm above the motor face": `{"a": "pulley.end_a", "b": "motor.face", "offset": [0,0,9]}`.
+
+## 6. How to talk to the agent (click -> chip -> copy -> paste)
+
+The viewer never edits geometry. The Build tab has a prompt box to write a request that mixes text with exact references:
+1. Type in the box (or click in it). Click a part, hole, port or plate edge in 3D: a **chip** is inserted at the caret (label such as `plate › edge +y`; the exact reference such as `actuator/plate.edge_+y` is stored in the chip, hover to see it). A click within 4 mm of a plate edge selects the edge; within 5 mm of a port or hole selects that; otherwise the whole instance. If the box is not the last thing you focused, the click only fills the **recent strip** (last 5 selections, click one to insert it at the caret).
+2. Typing `@` opens a list of instances (Tab/Enter/click inserts a chip; type `name.` to list that instance's ports and edges).
+3. **Copy prompt** puts a self-contained block on the clipboard (assembly file, current `state`, the request with chips written as `«label»`, and a References list with the exact refs and world positions/normals). Paste it into Claude Code. The box keeps its content (and a draft survives reloads in localStorage); **Clear** empties it.
+4. The agent edits `assemblies/*.json`; the viewer live-reloads (dev server).
