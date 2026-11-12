@@ -304,6 +304,31 @@ if (gp && gp.rep.model === 'actuator_2060_500') {
   }
 }
 
+// NEMA17 40 mm body variant (the user's motor): scale only z < 0 so face, boss, shaft and ports stay unchanged
+if (motor) {
+  const BODY = 40;
+  const src = motor.rep.loc;
+  let zmin = Infinity;
+  for (let i = 2; i < src.p.length; i += 3) zmin = Math.min(zmin, src.p[i]);
+  const bodyLen = -zmin, k = BODY / bodyLen;
+  const p = Float32Array.from(src.p);
+  for (let i = 2; i < p.length; i += 3) if (p[i] < 0) p[i] *= k;
+  // normals: only z is scaled, side faces are vertical (nz = 0) and the end faces are axis-aligned, so they are unchanged
+  const lb = bbox(p);
+  const part = {
+    ...structuredClone(motor.part), slug: 'nema17-40', name: 'NEMA17 Stepper Motor 40mm', type: 'motor',
+    dims: r3(lb.size), bbox: { min: r3(lb.min), max: r3(lb.max) },
+    derivedFrom: { slug: motor.part.slug, note: `body scaled along Z only for vertices with z < 0 by ${BODY} / ${bodyLen.toFixed(3)} = ${k.toFixed(4)} (body ${bodyLen.toFixed(2)} -> ${BODY} mm); mounting face, boss, shaft and ports unchanged` },
+    instances: 0, foundIn: [],
+    ports: structuredClone(motor.part.ports),
+  };
+  const dir = path.join(OUT, part.slug);
+  fs.mkdirSync(dir, { recursive: true });
+  await writeGlb(path.join(dir, 'part.glb'), p, src.n, motor.rep.mesh.idx, part.slug);
+  parts.push({ part, dir });
+  console.log(`nema17-40: measured body length ${bodyLen.toFixed(3)} mm, scale ${k.toFixed(4)}, new bbox z ${lb.min[2].toFixed(2)}..${lb.max[2].toFixed(2)}`);
+}
+
 // rail: simple end ports
 for (const p of parts.filter((q) => q.part.type === 'rail')) {
   const L = p.part.dims[2];

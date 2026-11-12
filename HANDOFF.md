@@ -9,7 +9,7 @@ Build an assembled 3D model of a pen plotter made from OpenBuilds modules, befor
 Design idea (sizes not final):
 - X axis: V-slot 20x60 rail, 4-wheel horizontal carriage (20-80mm gantry plate)
 - Y axis: V-slot 20x20 rail cantilevered on the X carriage, 4-wheel vertical carriage holding the pen
-- NEMA17 motors, GT2 belts; pen lift not designed yet (probably a servo)
+- NEMA17 motors (the user's motor is the **40 mm body NEMA17**: the assembly must use library part `nema17-40`, not the 48 mm `nema-17-stepper-motor`), GT2 belts; pen lift not designed yet (probably a servo)
 
 ## Decisions so far
 
@@ -64,6 +64,7 @@ Converted models:
 - **Validation** (printed by the script, stored in `ports_validation`, script exits 1 on failure): wheel_N hole centres vs the 4 wheel axles in actuator_2060_500 (0.000 mm for the 2 concentric wheels, 0.79 mm for the 2 eccentric ones = the eccentric spacer offset); wheel centre sits 3 + 7.4 + 5.1 mm above the plate back face; rail centre line = plate centre line; NEMA17 axis = mount-plate bore; mount plate centre = `motor_mount` port. Wheel `axle_back` is 7.4 mm above the plate `wheel_N` port in the real assembly (spacer 6 + shim 1 + bearing stack): a mate needs that offset.
 - **Viewer Parts mode:** `Assemblies | Parts` tabs. Library grouped by type, part at origin with its axes, port triads with labels (toggles for frames and labels). `library/` is served like `models/` (dev middleware) and copied to `dist/library` on build. Deep link `#parts/<slug>` (and `#parts/vslot-20x60`). Checked with headless Chrome screenshots (gantry plate, NEMA17, V-slot, wheel, mount plate; assemblies mode still loads).
 - **Parametric V-slot:** `viewer/vslot.js` (20x20, 20x40, 20x60, simplified profile: T-slot notches 6.2 mm opening / 6.1 deep, 4.2 mm bores, no V chamfers), same frame as the library rails, ports `end_a`, `end_b`, `mid`. Listed under "rail (parametric)" with a length field. Dimensions are not verified against OpenBuilds drawings.
+- **`nema17-40`** (user's motor): generated in build_library.mjs from the 48 mm NEMA17 by scaling only vertices with z < 0 by 40/48 (measured body 48.000 mm); face, boss, shaft and ports identical (`derivedFrom` in part.json); bbox z -40..24, `instances: 0`.
 - **Not done / next:** belt generator; ports on spacers, screws, pulley, idler plate, Open Rail plates, NEMA23 parts; step 3 = assembly JSON + mate solver using `transform` and ports; real rail V-groove profile (the library rail meshes are 20x60 only; no 20x20 or 20x40 mesh exists). The part-axes gizmo in Assemblies mode still uses the assembly frame.
 
 ## Open questions (user)
