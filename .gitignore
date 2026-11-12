@@ -1,3 +1,4 @@
 parts/
 models/
 node_modules/
+viewer/dist

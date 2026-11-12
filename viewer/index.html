@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>OpenBuilds viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html, body { margin: 0; height: 100%; font: 13px system-ui, sans-serif; background: #1b1d22; color: #ddd; overflow: hidden; }
+    #canvas { position: fixed; inset: 0; }
+    #panel { position: fixed; top: 0; right: 0; bottom: 0; width: 280px; box-sizing: border-box; padding: 12px; background: #23262dee; overflow: auto; }
+    #panel h3 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; color: #8a93a3; }
+    #panel h3:first-child { margin-top: 0; }
+    select { width: 100%; padding: 4px; }
+    label { display: block; margin: 3px 0; }
+    #info { line-height: 1.5; word-break: break-word; }
+    #info b { color: #fff; }
+    #hint { position: fixed; left: 12px; bottom: 10px; color: #8a93a3; }
+  </style>
+</head>
+<body>
+  <div id="canvas"></div>
+  <div id="panel">
+    <h3>Model</h3><select id="picker"></select>
+    <div id="count"></div>
+    <h3>Display</h3>
+    <label><input type="checkbox" id="t-world" checked> World axes</label>
+    <label><input type="checkbox" id="t-part" checked> Selected part axes</label>
+    <label><input type="checkbox" id="t-grid" checked> Grid</label>
+    <h3>Selection</h3>
+    <div id="info">Click a part.</div>
+  </div>
+  <div id="hint"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

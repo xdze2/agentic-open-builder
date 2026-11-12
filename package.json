@@ -4,13 +4,20 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "convert": "node tools/convert_all.mjs"
+    "convert": "node tools/convert_all.mjs",
+    "dev": "vite --config viewer/vite.config.js",
+    "build": "vite build --config viewer/vite.config.js",
+    "preview": "vite preview --config viewer/vite.config.js"
   },
   "keywords": [],
   "type": "module",
   "private": "true",
   "dependencies": {
     "@gltf-transform/core": "4.5.1",
-    "occt-import-js": "0.0.23"
+    "occt-import-js": "0.0.23",
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "vite": "6.0.7"
   }
 }

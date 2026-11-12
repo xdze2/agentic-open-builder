@@ -28,7 +28,11 @@ tools/verify.mjs     reloads GLBs, checks node counts vs catalog  (node tools/ve
 models/<name>/       assembly.glb, catalog.json, parts/<slug>__<n>.glb   (10 MB total)
 ```
 
-No viewer exists yet. Not a git repo.
+```
+viewer/              Vite + three.js viewer (index.html, main.js, vite.config.js)
+```
+
+Viewer: `npm install`, then `npm run dev` (http://localhost:5173) or `npm run build` (-> viewer/dist, copies assembly.glb + catalog.json of each model). `vite.config.js` serves `models/` at `/models` via a dev middleware and builds the picker list from the folders at dev/build time (virtual module `virtual:models`; restart dev after adding a model). Features: model picker, orbit, auto-frame, click-to-select (name, type, bbox size/centre in mm), world/part axes and grid toggles (grid step shown bottom-left), colour by part type (name regex table `TYPES` at the top of `viewer/main.js`, first match wins: rail, plate, wheel, motor, pulley, belt, fastener, other). Scene is Z-up like the STEP data. Catalog entries are matched to GLB nodes by `name__instance` with non-alphanumerics stripped (GLTFLoader sanitises names). Checked with headless Chrome only for load (47 parts, no console errors) and one screenshot; click selection was not tested automatically. Part-axes gizmo uses the mesh's own frame, which is the assembly frame until parts are re-centred.
 
 Converted models:
 
@@ -58,7 +62,7 @@ Converted models:
 
 ## Next steps
 
-1. Minimal three.js viewer (Vite): load `assembly.glb` files, OrbitControls, click a part to show its name, toggle axis gizmos.
+1. (done) Minimal viewer, see above.
 2. Re-centre a few reusable parts (20-80 gantry plate, solid V wheel, NEMA17, motor mount) and define their ports. Start with the 4 wheel ports on the 20-80 plate, measured from the actuator file.
 3. Write the assembly JSON + tree solver, rebuild the X axis from parts, add the X slider.
 4. Y axis, pen holder, belts, BOM (see the roadmap in `proposal.md` §4).
