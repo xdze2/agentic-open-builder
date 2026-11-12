@@ -67,6 +67,28 @@ Converted models:
 - **`nema17-40`** (user's motor): generated in build_library.mjs from the 48 mm NEMA17 by scaling only vertices with z < 0 by 40/48 (measured body 48.000 mm); face, boss, shaft and ports identical (`derivedFrom` in part.json); bbox z -40..24, `instances: 0`.
 - **Not done / next:** belt generator; ports on spacers, screws, pulley, idler plate, Open Rail plates, NEMA23 parts; step 3 = assembly JSON + mate solver using `transform` and ports; real rail V-groove profile (the library rail meshes are 20x60 only; no 20x20 or 20x40 mesh exists). The part-axes gizmo in Assemblies mode still uses the assembly frame.
 
+## Step 3 done: assemblies, solver, Build tab (2026-11-12)
+
+Read `VOCABULARY.md` first (world axes, face/port/hole names, verbs, text -> JSON examples). Summary:
+
+```
+VOCABULARY.md              shared language (human + agent)
+lib/mat.js                 4x4 rigid transforms (flat row-major arrays), no deps
+lib/vslot_ports.js         V-slot profiles, faces, slot lines, lip ports; used by node, build_library and the viewer
+lib/assembly.js            solver: parts / mates / mounts / sub-assemblies / joints / BOM; async, loader injected (node fs or browser fetch)
+tools/solve.mjs            CLI: node tools/solve.mjs assemblies/plotter.json [--positions] [--state x=120] [--json]  (npm run solve -- ...)
+assemblies/*.json          actuator_2060_500.json (37 instances, joint x), plotter.json (actuator sub-assembly + 20x20x500 beam, 2 screws + 2 tee nuts)
+viewer/buildmode.js        "Build" tab (deep link #build/plotter.json)
+```
+
+- **World:** X = travel (right), Y = front/back (front = -Y = toward the viewer), Z up. Origin = centre of end_a of the X rail. Actuator pose: rail along +X, plate free (front) face to -Y, motor up (+Z). `state.x` = mm from end_a.
+- **Library additions** (rebuilt by `npm run library`): rails get face / slot / lip ports from `lib/vslot_ports.js`; plates get `holes` (every circular hole, name `h_<x>_<y>`, diameter, wheel holes alias `wheel_N`) plus `front` (free face, library z=0) / `back` (wheel side, library z=t) ports; axial parts `end_a/end_b/center`; eccentric spacer `bore_a/bore_b` (0.79 mm off axis); screws `under_head/head_top/tip` (+ `headHeight` 1.5); tee nut `face_a/face_b/center`.
+- **Addressing:** `inst.port`, `inst.front:h_-19.85_0` (hole by name), `inst.front@x,y` (nearest hole within 2 mm), `inst.top_slot_2@120` (120 mm from end_a). Errors name the valid choices.
+- **Mount** (`mounts[]`): rail face on plate face, `direction` (world word or plate +x/-x/+y/-y), `line`, `overhang`/`end_a_at`, `fasten {with,nut,count}`: finds holes on the slot line, adds tee nuts + screws (screw from the far face of the plate), chooses the screw length from the stack (plate + gap + 1.8 lip + 3 nut + 0.8 protrusion), errors with the usable plate lines if nothing lines up.
+- **Actuator rebuild vs models/actuator_2060_500:** max deviation 0.514 mm (nuts: STEP nut seats 0.5 mm off our end-to-end stack; wheel screws 0.5 mm: STEP screw head sits 0.25 mm off the plate face), all wheels/bearings/shims/spacers/rail/plate/mount < 0.04 mm. Motor is 40 mm so only the shaft tip is compared (0.000). Not modelled from the STEP: belt, the two plate-mount screws + double tee nut (M5 11.5 / Tee Nut), 4 M3 screws, 2 rail-end tee nuts. The anchor of the comparison is the gantry plate (`compare` key of the actuator JSON); the rail pose is checked relative to it.
+- **Build tab:** pick file, slider per joint, instance name on hover and click (click also shows nearest port / hole and the rail face + slot + mm from end_a, with copy-ready JSON refs), BOM (rails with cut length), mount summary, live reload on save of any `assemblies/*.json` (Vite HMR custom event `assemblies-changed`, dev server only; the production build copies `assemblies/` to `dist/assemblies`). Errors (including JSON syntax errors) are shown in the panel.
+- **Not done / ideas:** the motor mount plate's own screws and the rail-end tee nuts are not generated; no collision check; no belt; tee nut rotation about the slot is fixed (15 mm along the slot); `fasten` only supports a rail lying on a plate face; V-slot profile is the simplified one; the viewer has no port-triad overlay in Build mode (only a marker at the clicked port).
+
 ## Open questions (user)
 
 - Rail and gantry plate sizes are **not decided** (user: "not sure yet which size to use"). The parts library must make swapping sizes easy.
@@ -77,6 +99,6 @@ Converted models:
 ## Next steps
 
 1. (done) Minimal viewer, see above.
-2. Re-centre a few reusable parts (20-80 gantry plate, solid V wheel, NEMA17, motor mount) and define their ports. Start with the 4 wheel ports on the 20-80 plate, measured from the actuator file.
-3. Write the assembly JSON + tree solver, rebuild the X axis from parts, add the X slider.
+2. (done) Re-centre a few reusable parts (20-80 gantry plate, solid V wheel, NEMA17, motor mount) and define their ports. Start with the 4 wheel ports on the 20-80 plate, measured from the actuator file.
+3. (done) Write the assembly JSON + tree solver, rebuild the X axis from parts, add the X slider.
 4. Y axis, pen holder, belts, BOM (see the roadmap in `proposal.md` §4).

@@ -27,6 +27,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Document, NodeIO } from '@gltf-transform/core';
+import { vslotPorts, profileOfDims } from '../lib/vslot_ports.js';
 import { loadMesh, bbox, findHoles, sub, dot, cross, apply, applyT, r3 } from './lib_mesh.mjs';
 
 const MODELS = path.resolve('models'), OUT = path.resolve('library');
@@ -329,10 +330,58 @@ if (motor) {
   console.log(`nema17-40: measured body length ${bodyLen.toFixed(3)} mm, scale ${k.toFixed(4)}, new bbox z ${lb.min[2].toFixed(2)}..${lb.max[2].toFixed(2)}`);
 }
 
-// rail: simple end ports
+// rail: end ports + face / slot ports from the shared parametric generator (lib/vslot_ports.js)
 for (const p of parts.filter((q) => q.part.type === 'rail')) {
   const L = p.part.dims[2];
-  p.part.ports = [port('end_a', [0, 0, 0], [0, 0, -1], [1, 0, 0]), port('end_b', [0, 0, L], [0, 0, 1], [1, 0, 0])];
+  const prof = profileOfDims(p.part.dims[0], p.part.dims[1]);
+  p.part.ports = prof ? vslotPorts(prof, L).map((q) => ({ ...q, origin: r3(q.origin), z: r3(q.z), x: r3(q.x) })) : [port('end_a', [0, 0, 0], [0, 0, -1], [1, 0, 0]), port('end_b', [0, 0, L], [0, 0, 1], [1, 0, 0])];
+  if (prof) p.part.profile = prof;
+}
+
+// ---- generic ports (added for assemblies, step 3) ----
+const num = (v) => +(+v).toFixed(2);
+for (const p of parts) {
+  const { part } = p; const t = part.dims[2];
+  if (['spacer', 'shim', 'bearing', 'nut', 'pulley'].includes(part.type)) {
+    // axial: end_a = -Z end face (normal -Z), end_b = +Z end face (normal +Z), centre. Eccentric bores get bore_a / bore_b.
+    const h = t / 2;
+    part.ports.push(port('end_a', [0, 0, -h], [0, 0, -1], [1, 0, 0]), port('end_b', [0, 0, h], [0, 0, 1], [1, 0, 0]), port('center', [0, 0, 0], [0, 0, 1], [1, 0, 0]));
+    if (p.rep && part.type === 'spacer') {
+      const pl = toLocal(p.rep.fr, p.rep.mesh.pos, null).p;
+      const hl = findHoles({ pos: pl, idx: p.rep.mesh.idx }, -h).sort((a, b) => a.d - b.d)[0];
+      if (hl && Math.hypot(hl.x, hl.y) > 0.1) {
+        part.ports.push(port('bore_a', [hl.x, hl.y, -h], [0, 0, -1], [1, 0, 0], { diameter: num(hl.d), note: 'bore axis, eccentric to the outer axis' }), port('bore_b', [hl.x, hl.y, h], [0, 0, 1], [1, 0, 0], { diameter: num(hl.d) }));
+        part.eccentricity = num(Math.hypot(hl.x, hl.y));
+        console.log(`  ${part.slug}: eccentric bore at (${hl.x.toFixed(2)}, ${hl.y.toFixed(2)})`);
+      }
+    }
+  }
+  if (part.type === 'screw') {
+    // head height: first z (from the head end) where the slab radius falls below 60% of the head radius
+    const pl = p.rep ? toLocal(p.rep.fr, p.rep.mesh.pos, null).p : null; if (!pl) continue;
+    const z0 = -t / 2, rows = new Map();
+    for (let i = 0; i < pl.length; i += 3) { const k = Math.round((pl[i + 2] - z0) * 4) / 4; rows.set(k, Math.max(rows.get(k) || 0, Math.hypot(pl[i], pl[i + 1]))); }
+    const ks = [...rows.keys()].sort((a, b) => a - b), R = Math.max(...ks.slice(0, 6).map((k) => rows.get(k)));
+    const big = ks.filter((k) => k > 0.5), hi = big.findIndex((k) => rows.get(k) < 0.6 * R), hh = hi > 0 ? big[hi - 1] : 1.5; // slab rows are sparse (0.25 mm); skip the socket row near the top
+    part.headHeight = hh; part.headDiameter = num(2 * R);
+    part.ports.push(port('under_head', [0, 0, z0 + hh], [0, 0, 1], [1, 0, 0], { note: 'underside of the head, z toward the tip: mates onto a hole port on the face the head rests on' }),
+      port('head_top', [0, 0, z0], [0, 0, -1], [1, 0, 0]), port('tip', [0, 0, t / 2], [0, 0, 1], [1, 0, 0]));
+  }
+  if (part.type === 'tee_nut') part.ports.push(port('face_a', [0, 0, t], [0, 0, 1], [1, 0, 0], { note: 'face toward the slot opening (z +); mates onto <face>_slot_<i>_lip of a rail' }), port('face_b', [0, 0, 0], [0, 0, -1], [1, 0, 0]), port('center', [0, 0, t / 2], [0, 0, 1], [1, 0, 0]));
+  if (part.type === 'plate' && p.rep) {
+    // every circular hole, named by plate-local coordinates; plus the free ('front') and rail-side ('back') face ports.
+    // plate frame (library): thickness = Z, back face z=0 (this is the plate FRONT in assembly vocabulary: the free face),
+    // library front z=t (this is the assembly BACK: the wheel side).
+    const pl = toLocal(p.rep.fr, p.rep.mesh.pos, null).p;
+    const hs = findHoles({ pos: pl, idx: p.rep.mesh.idx }, t);
+    const nm = (v) => String(+v.toFixed(2)).replace('-0', '0');
+    part.holes = hs.map((h) => ({ name: `h_${nm(h.x)}_${nm(h.y)}`, x: num(h.x), y: num(h.y), d: num(h.d) })).sort((a, b) => a.y - b.y || a.x - b.x);
+    const wheelAlias = Object.fromEntries((part.ports || []).filter((q) => q.name.startsWith('wheel_')).map((q) => [q.name, q.origin]));
+    for (const h of part.holes) for (const [a, o] of Object.entries(wheelAlias)) if (Math.hypot(h.x - o[0], h.y - o[1]) < 0.05) h.alias = a;
+    part.ports.push(port('front', [0, 0, 0], [0, 0, -1], [1, 0, 0], { note: 'assembly FRONT = free face (library z=0, normal -Z). Faces the viewer in the standard pose. Plate-local x/y are those of the library frame.' }),
+      port('back', [0, 0, t], [0, 0, 1], [1, 0, 0], { note: 'assembly BACK = wheel / rail side (library z=t, normal +Z)' }));
+    console.log(`  ${part.slug}: ${part.holes.length} holes`);
+  }
 }
 
 // ---------------- flush ----------------
@@ -340,7 +389,7 @@ for (const { part, dir } of parts) fs.writeFileSync(path.join(dir, 'part.json'),
 const index = {
   units: 'mm', generated: 'tools/build_library.mjs', frameRules: FRAME_RULES,
   portConvention: 'port = {name, origin[3], z[3] (out of the mating face), x[3] (reference)}; y = z cross x. All in the part local frame. A mate puts port A on port B with Z axes opposite.',
-  parts: parts.map(({ part }) => ({ slug: part.slug, name: part.name, type: part.type, dims: part.dims, instances: part.instances, ports: part.ports.map((p) => p.name), file: `${part.slug}/part.glb` }))
+  parts: parts.map(({ part }) => ({ slug: part.slug, name: part.name, type: part.type, dims: part.dims, instances: part.instances, ports: part.ports.map((p) => p.name), ...(part.holes ? { holes: part.holes.length } : {}), file: `${part.slug}/part.glb` }))
     .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name)),
   skipped,
 };

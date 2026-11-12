@@ -15,6 +15,8 @@ const listModels = () =>
     : [];
 
 const libDir = path.resolve(root, '../library');
+const asmDir = path.resolve(root, '../assemblies');
+const listAsm = () => (fs.existsSync(asmDir) ? fs.readdirSync(asmDir).filter((f) => f.endsWith('.json') && !f.startsWith('_')).sort() : []);
 const MIME = { '.glb': 'model/gltf-binary', '.json': 'application/json' };
 
 function modelsPlugin() {
@@ -24,7 +26,12 @@ function modelsPlugin() {
     resolveId: (s) => (s === id ? rid : null),
     load: (s) => (s === rid ? `export default ${JSON.stringify(listModels())};` : null),
     configureServer(server) {
-      for (const [url, dir] of [['/models', modelsDir], ['/library', libDir]])
+      // assemblies/*.json: served live, list at /assemblies/_list.json, HMR event on save
+      server.middlewares.use('/assemblies/_list.json', (req, res) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(listAsm())); });
+      server.watcher.add(asmDir);
+      const changed = (f) => {  if (f.startsWith(asmDir + path.sep) && f.endsWith('.json')) server.ws.send({ type: 'custom', event: 'assemblies-changed', data: { file: path.basename(f) } }); };
+      server.watcher.on('change', changed); server.watcher.on('add', changed);
+      for (const [url, dir] of [['/models', modelsDir], ['/library', libDir], ['/assemblies', asmDir]])
         server.middlewares.use(url, (req, res, next) => {
           const file = path.join(dir, decodeURIComponent(req.url.split('?')[0]));
           if (!file.startsWith(dir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return next();
@@ -39,6 +46,7 @@ function modelsPlugin() {
         for (const f of ['assembly.glb', 'catalog.json'])
           fs.copyFileSync(path.join(modelsDir, m, f), path.join(out, m, f));
       }
+      if (fs.existsSync(asmDir)) { const o = path.resolve(root, 'dist/assemblies'); fs.mkdirSync(o, { recursive: true }); for (const f of listAsm()) fs.copyFileSync(path.join(asmDir, f), path.join(o, f)); fs.writeFileSync(path.join(o, '_list.json'), JSON.stringify(listAsm())); }
       if (fs.existsSync(libDir)) fs.cpSync(libDir, path.resolve(root, 'dist/library'), { recursive: true }); // part.glb, part.json, index.json
     },
   };

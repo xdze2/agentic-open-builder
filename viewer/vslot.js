@@ -3,8 +3,9 @@
 // Simplified: every 20 mm module has one T-slot per outer side (slot opening 6.2 mm, groove 6.1 mm deep, 1.8 mm lips)
 // and a 4.2 mm centre bore. The V-groove chamfers of the real profile and the corner webs are not modelled.
 import * as THREE from 'three';
+import { PROFILES, vslotDef } from '../lib/vslot_ports.js';
 
-export const PROFILES = { '20x20': [1, 1], '20x40': [2, 1], '20x60': [3, 1] }; // [modules along X, along Y], 20 mm each
+export { PROFILES }; // [modules along X, along Y], 20 mm each; ports/slots live in lib/vslot_ports.js (shared with node)
 const M = 20;
 // half notch, (u along the side, v inward), listed in travel order
 const NOTCH = [[-3.1, 0], [-3.1, 1.8], [-5.3, 3.2], [-5.3, 4.3], [-3, 6.1], [3, 6.1], [5.3, 4.3], [5.3, 3.2], [3.1, 1.8], [3.1, 0]];
@@ -39,17 +40,5 @@ export function vslotGeometry(profile, length) {
   return new THREE.ExtrudeGeometry(shape, { depth: length, bevelEnabled: false, curveSegments: 16 });
 }
 
-/** part.json-like description of the parametric rail (same schema as library parts) */
-export function vslotPart(profile, length) {
-  const { W, H } = vslotShape(profile);
-  const x = [1, 0, 0];
-  return {
-    slug: `vslot-${profile}`, name: `V-Slot ${profile} x ${length} (parametric)`, type: 'rail', dims: [W, H, length], parametric: 'vslot',
-    transform: { frame: 'length = Z, origin = centre of one end (end_a), longest side = X' },
-    ports: [
-      { name: 'end_a', origin: [0, 0, 0], z: [0, 0, -1], x },
-      { name: 'end_b', origin: [0, 0, length], z: [0, 0, 1], x },
-      { name: 'mid', origin: [0, 0, length / 2], z: [0, 0, 1], x, note: 'rail station for a carriage; slide along Z' },
-    ],
-  };
-}
+/** part.json-like description of the parametric rail (same schema as library parts; ports incl. faces and slots) */
+export const vslotPart = (profile, length) => vslotDef(profile, length);

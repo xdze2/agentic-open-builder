@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import modelNames from 'virtual:models';
 import { PROFILES, vslotGeometry, vslotPart } from './vslot.js';
+import { createBuild } from './buildmode.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -181,11 +182,19 @@ async function initParts() {
   $('p-profile').onchange = $('p-len').onchange = () => loadParametric($('p-profile').value);
 }
 
-function setMode(m, noDefault = false) {
+let build = null;
+function setMode(m, noDefault = false, buildFile) {
   mode = m;
-  $('m-asm').classList.toggle('on', m === 'asm'); $('m-parts').classList.toggle('on', m === 'parts');
-  $('asm-box').hidden = m !== 'asm'; $('parts-box').hidden = m !== 'parts';
-  if (m === 'asm') {
+  $('m-asm').classList.toggle('on', m === 'asm'); $('m-parts').classList.toggle('on', m === 'parts'); $('m-build').classList.toggle('on', m === 'build');
+  $('asm-box').hidden = m !== 'asm'; $('parts-box').hidden = m !== 'parts'; $('build-box').hidden = m !== 'build';
+  if (m !== 'build') build?.leave();
+  if (m === 'build') {
+    if (model) { scene.remove(model); model = null; parts = []; }
+    if (partGroup) { scene.remove(partGroup); partGroup = null; }
+    select(null); worldAxes.visible = $('t-world').checked;
+    build ||= createBuild({ $, scene, camera, renderer, makeGrid, frame, colorOfType });
+    build.enter(buildFile).catch(console.error);
+  } else if (m === 'asm') {
     if (partGroup) { scene.remove(partGroup); partGroup = null; }
     worldAxes.visible = $('t-world').checked;
     if (modelNames.length) load($('picker').value || modelNames[0]).catch(console.error);
@@ -195,6 +204,7 @@ function setMode(m, noDefault = false) {
     initParts().then(() => { if (libIndex && !partGroup && !noDefault) loadPart(libIndex.parts.find((p) => p.type === 'plate').slug).catch(console.error); });
   }
 }
+$('m-build').onclick = () => mode !== 'build' && setMode('build');
 $('m-asm').onclick = () => mode !== 'asm' && setMode('asm');
 $('m-parts').onclick = () => mode !== 'parts' && setMode('parts');
 $('t-ports').onchange = (e) => partGroup?.getObjectByName('ports') && (partGroup.getObjectByName('ports').visible = e.target.checked);
@@ -258,6 +268,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   const ray = new THREE.Raycaster();
   ray.setFromCamera(ndc, camera);
+  if (mode === 'build') { build.show(build.hitAt(e.clientX, e.clientY)); return; }
   const hit = ray.intersectObjects(parts, false)[0];
   select(hit ? hit.object : null);
 });
@@ -271,10 +282,12 @@ $('picker').onchange = (e) => load(e.target.value);
 
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 // Deep link: #parts/<slug> or #parts/vslot-20x60
+const bhash = location.hash.match(/^#build(?:\/(.+))?$/);
 const hash = location.hash.match(/^#parts\/(.+)$/);
-if (hash) {
+if (bhash) setMode('build', true, bhash[1]);
+else if (hash) {
   setMode('parts', true);
   initParts().then(() => (hash[1].startsWith('vslot-') ? loadParametric(hash[1].slice(6)) : loadPart(hash[1]))).catch(console.error);
 } else if (modelNames.length) load(modelNames[0]).catch((e) => console.error(e));
 else $('info').textContent = 'No models found in models/.';
-window.__viewer = { load, setMode, loadPart, loadParametric, get parts() { return parts; }, select };
+window.__viewer = { setClip: (z) => { renderer.localClippingEnabled = false; renderer.clippingPlanes = z === null ? [] : [new THREE.Plane(new THREE.Vector3(0, 0, -1), -z)]; }, get build() { return build; }, camera, controls, load, setMode, loadPart, loadParametric, get parts() { return parts; }, select };

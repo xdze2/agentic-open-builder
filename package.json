@@ -8,7 +8,8 @@
     "library": "node tools/build_library.mjs",
     "dev": "vite --config viewer/vite.config.js",
     "build": "vite build --config viewer/vite.config.js",
-    "preview": "vite preview --config viewer/vite.config.js"
+    "preview": "vite preview --config viewer/vite.config.js",
+    "solve": "node tools/solve.mjs"
   },
   "keywords": [],
   "type": "module",

@@ -23,16 +23,30 @@
     #plist .it:hover { background: #333842; }
     #plist .it.on { background: #4f8fd6; color: #fff; }
     #info table { border-collapse: collapse; } #info td { padding: 0 6px 0 0; font-size: 12px; vertical-align: top; }
+    #b-err { color: #ff8a8a; white-space: pre-wrap; word-break: break-word; font-size: 12px; margin-top: 6px; }
+    #b-sliders .j { margin: 4px 0 8px; } #b-sliders input[type=range] { width: 100%; }
+    #b-bom table { border-collapse: collapse; font-size: 12px; } #b-bom td { padding: 0 6px 0 0; vertical-align: top; } #b-bom td:first-child { white-space: nowrap; }
+    #b-mounts { font-size: 12px; line-height: 1.4; word-break: break-word; }
+    #tip { position: fixed; pointer-events: none; background: #000c; color: #fff; padding: 3px 7px; border-radius: 3px; font-size: 12px; z-index: 5; }
+    .copy { background: #1b1d22; padding: 2px 5px; border-radius: 3px; cursor: pointer; user-select: all; display: inline-block; margin: 1px 0; font-family: monospace; color: #ffee88; }
     #hint { position: fixed; left: 12px; bottom: 10px; color: #8a93a3; }
   </style>
 </head>
 <body>
   <div id="canvas"></div>
   <div id="panel">
-    <div id="modes"><button id="m-asm" class="on">Assemblies</button><button id="m-parts">Parts</button></div>
+    <div id="modes"><button id="m-asm" class="on">Assemblies</button><button id="m-parts">Parts</button><button id="m-build">Build</button></div>
     <div id="asm-box">
       <h3>Model</h3><select id="picker"></select>
       <div id="count"></div>
+    </div>
+    <div id="build-box" hidden>
+      <h3>Assembly file</h3><select id="b-file"></select>
+      <div id="b-err"></div>
+      <h3>Joints</h3><div id="b-sliders"></div>
+      <h3>Mounts</h3><div id="b-mounts"></div>
+      <h3>Bill of materials</h3><div id="b-bom"></div>
+      <label><input type="checkbox" id="b-ports" checked> Show clicked port marker</label>
     </div>
     <div id="parts-box" hidden>
       <h3>Library</h3><div id="plist"></div>
@@ -50,6 +64,7 @@
     <h3>Selection</h3>
     <div id="info">Click a part.</div>
   </div>
+  <div id="tip" hidden></div>
   <div id="hint"></div>
   <script type="module" src="./main.js"></script>
 </body>
