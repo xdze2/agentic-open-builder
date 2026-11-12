@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import modelNames from 'virtual:models';
+import { PROFILES, vslotGeometry, vslotPart } from './vslot.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -82,11 +83,129 @@ function frame(box) {
   controls.update();
 }
 
+// ---- Parts mode ----
+const LIB_COLOR = { rail: 'rail', plate: 'plate', tee_nut: 'fastener', wheel: 'wheel', motor: 'motor', pulley: 'pulley',
+  screw: 'fastener', nut: 'fastener', spacer: 'fastener', bearing: 'fastener', shim: 'fastener', block: 'plate' };
+const colorOfType = (t) => (TYPES.find(([n]) => n === (LIB_COLOR[t] || 'other')) || TYPES[TYPES.length - 1])[2];
+let mode = 'asm', libIndex = null, partGroup = null, curPart = null;
+const AX = [0xff4444, 0x44dd44, 0x4488ff];
+
+function label(text, size) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const g = c.getContext('2d'); g.font = 'bold 36px sans-serif'; g.fillStyle = '#ffee88'; g.strokeStyle = '#000'; g.lineWidth = 6;
+  g.strokeText(text, 4, 44); g.fillText(text, 4, 44);
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: false, transparent: true }));
+  sp.scale.set(size * 4, size, 1); sp.center.set(0, 0); sp.renderOrder = 10;
+  return sp;
+}
+
+/** Port frame: matrix columns x, y = z cross x, z. Triad length scales with the part. */
+function portTriad(p, len) {
+  const x = new THREE.Vector3(...p.x), z = new THREE.Vector3(...p.z), y = new THREE.Vector3().crossVectors(z, x);
+  const g = new THREE.Group();
+  g.matrix.makeBasis(x, y, z).setPosition(...p.origin); g.matrixAutoUpdate = false;
+  const ax = new THREE.AxesHelper(len);
+  ax.material.depthTest = false; ax.renderOrder = 9;
+  g.add(ax);
+  const l = label(p.name, len * 0.35); l.position.set(len * 0.1, len * 0.1, len * 0.1); l.userData.isLabel = true;
+  g.add(l);
+  return g;
+}
+
+function showPart(part, geometry, gltfScene) {
+  select(null);
+  if (model) { scene.remove(model); model = null; }
+  if (partGroup) scene.remove(partGroup);
+  parts = []; curPart = part;
+  partGroup = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: colorOfType(part.type), roughness: 0.55, metalness: 0.2, side: THREE.DoubleSide });
+  let obj;
+  if (gltfScene) { obj = gltfScene; obj.traverse((o) => { if (o.isMesh) o.material = mat; }); }
+  else obj = new THREE.Mesh(geometry, mat);
+  partGroup.add(obj);
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  const unit = Math.max(4, Math.min(size.x, size.y, 80, Math.max(...part.dims) / 3));
+  const origin = new THREE.AxesHelper(unit * 1.6); origin.material.depthTest = false; origin.renderOrder = 9;
+  partGroup.add(origin);
+  const portsG = new THREE.Group(); portsG.name = 'ports';
+  for (const p of part.ports) portsG.add(portTriad(p, unit * 0.8));
+  portsG.visible = $('t-ports').checked;
+  portsG.traverse((o) => { if (o.userData.isLabel) o.visible = $('t-labels').checked; });
+  partGroup.add(portsG);
+  scene.add(partGroup);
+  worldAxes.visible = false;
+  makeGrid(box);
+  grid.position.z = Math.min(box.min.z, 0);
+  frame(box);
+  const f = (v) => String(+v.toFixed(2));
+  $('count').textContent = '';
+  $('hint').textContent = 'Part frame at the origin: X red, Y green, Z blue. Port frames are small triads with labels (Z = out of the mating face). Units: mm.';
+  $('info').innerHTML =
+    `<b>${part.name}</b><br>type: ${part.type}${part.parametric ? ' (parametric)' : ''}<br>size X/Y/Z (mm): ${part.dims.map(f).join(' x ')}<br>` +
+    (part.source ? `source: ${part.source.model} / ${part.source.node}<br>found in ${part.foundIn.length} model(s), ${part.instances} instance(s)<br>` : '') +
+    `frame: ${part.transform.frame}<br><b>ports (${part.ports.length})</b><table>` +
+    part.ports.map((p) => `<tr><td>${p.name}</td><td>(${p.origin.map(f).join(', ')})  z(${p.z.map(f).join(',')})${p.diameter ? ` d${f(p.diameter)}` : ''}</td></tr>`).join('') + '</table>';
+  window.__viewer.part = part;
+}
+
+async function loadPart(slug) {
+  document.querySelectorAll('#plist .it').forEach((e) => e.classList.toggle('on', e.dataset.slug === slug));
+  $('param').hidden = true;
+  const base = `library/${slug}/`;
+  const [gltf, part] = await Promise.all([new GLTFLoader().loadAsync(base + 'part.glb'), fetch(base + 'part.json').then((r) => r.json())]);
+  showPart(part, null, gltf.scene);
+  if (part.parametric) { $('param').hidden = false; $('hint').textContent += ' Reference mesh at fixed length; use "param" generator below.'; }
+}
+
+function loadParametric(profile) {
+  document.querySelectorAll('#plist .it').forEach((e) => e.classList.toggle('on', e.dataset.slug === 'vslot-' + profile));
+  $('param').hidden = false;
+  $('p-profile').value = profile;
+  const len = Math.max(20, +$('p-len').value || 300);
+  showPart(vslotPart(profile, len), vslotGeometry(profile, len), null);
+}
+
+async function initParts() {
+  if (libIndex) return;
+  libIndex = await fetch('library/index.json').then((r) => r.json()).catch(() => null);
+  const box = $('plist');
+  if (!libIndex) { box.textContent = 'No library/. Run: npm run library'; return; }
+  const groups = {};
+  for (const p of libIndex.parts) (groups[p.type] ||= []).push({ slug: p.slug, label: `${p.name}  [${p.dims.map((v) => +v.toFixed(1)).join('x')}]` });
+  groups['rail (parametric)'] = Object.keys(PROFILES).map((k) => ({ slug: 'vslot-' + k, label: `V-Slot ${k} (generated)`, param: k }));
+  box.innerHTML = Object.entries(groups).map(([t, items]) => `<div class="grp">${t}</div>` +
+    items.map((i) => `<div class="it" data-slug="${i.slug}"${i.param ? ` data-param="${i.param}"` : ''}>${i.label}</div>`).join('')).join('');
+  box.onclick = (e) => { const it = e.target.closest('.it'); if (!it) return; (it.dataset.param ? loadParametric(it.dataset.param) : loadPart(it.dataset.slug)).catch(console.error); };
+  $('p-profile').innerHTML = Object.keys(PROFILES).map((k) => `<option>${k}</option>`).join('');
+  $('p-profile').onchange = $('p-len').onchange = () => loadParametric($('p-profile').value);
+}
+
+function setMode(m, noDefault = false) {
+  mode = m;
+  $('m-asm').classList.toggle('on', m === 'asm'); $('m-parts').classList.toggle('on', m === 'parts');
+  $('asm-box').hidden = m !== 'asm'; $('parts-box').hidden = m !== 'parts';
+  if (m === 'asm') {
+    if (partGroup) { scene.remove(partGroup); partGroup = null; }
+    worldAxes.visible = $('t-world').checked;
+    if (modelNames.length) load($('picker').value || modelNames[0]).catch(console.error);
+  } else {
+    if (model) { scene.remove(model); model = null; parts = []; }
+    select(null);
+    initParts().then(() => { if (libIndex && !partGroup && !noDefault) loadPart(libIndex.parts.find((p) => p.type === 'plate').slug).catch(console.error); });
+  }
+}
+$('m-asm').onclick = () => mode !== 'asm' && setMode('asm');
+$('m-parts').onclick = () => mode !== 'parts' && setMode('parts');
+$('t-ports').onchange = (e) => partGroup?.getObjectByName('ports') && (partGroup.getObjectByName('ports').visible = e.target.checked);
+$('t-labels').onchange = (e) => partGroup?.getObjectByName('ports')?.traverse((o) => { if (o.userData.isLabel) o.visible = e.target.checked; });
+
 const key = (s) => s.replace(/[^A-Za-z0-9_]/g, ''); // GLTFLoader sanitises node names
 
 async function load(name) {
   select(null);
   if (model) scene.remove(model);
+  if (partGroup) { scene.remove(partGroup); partGroup = null; }
   const base = `models/${name}/`;
   const [gltf, cat] = await Promise.all([
     new GLTFLoader().loadAsync(base + 'assembly.glb'),
@@ -151,6 +270,11 @@ $('picker').innerHTML = modelNames.map((n) => `<option>${n}</option>`).join('');
 $('picker').onchange = (e) => load(e.target.value);
 
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
-if (modelNames.length) load(modelNames[0]).catch((e) => console.error(e));
+// Deep link: #parts/<slug> or #parts/vslot-20x60
+const hash = location.hash.match(/^#parts\/(.+)$/);
+if (hash) {
+  setMode('parts', true);
+  initParts().then(() => (hash[1].startsWith('vslot-') ? loadParametric(hash[1].slice(6)) : loadPart(hash[1]))).catch(console.error);
+} else if (modelNames.length) load(modelNames[0]).catch((e) => console.error(e));
 else $('info').textContent = 'No models found in models/.';
-window.__viewer = { load, get parts() { return parts; }, select };
+window.__viewer = { load, setMode, loadPart, loadParametric, get parts() { return parts; }, select };

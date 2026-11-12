@@ -14,14 +14,35 @@
     label { display: block; margin: 3px 0; }
     #info { line-height: 1.5; word-break: break-word; }
     #info b { color: #fff; }
+    #modes { display: flex; gap: 4px; margin-bottom: 4px; }
+    #modes button { flex: 1; padding: 5px; background: #2e323b; color: #ccc; border: 1px solid #444; cursor: pointer; }
+    #modes button.on { background: #4f8fd6; color: #fff; }
+    #plist { max-height: 38vh; overflow: auto; border: 1px solid #333; }
+    #plist .grp { background: #2e323b; color: #8a93a3; font-size: 11px; text-transform: uppercase; padding: 2px 6px; position: sticky; top: 0; }
+    #plist .it { padding: 2px 6px 2px 12px; cursor: pointer; }
+    #plist .it:hover { background: #333842; }
+    #plist .it.on { background: #4f8fd6; color: #fff; }
+    #info table { border-collapse: collapse; } #info td { padding: 0 6px 0 0; font-size: 12px; vertical-align: top; }
     #hint { position: fixed; left: 12px; bottom: 10px; color: #8a93a3; }
   </style>
 </head>
 <body>
   <div id="canvas"></div>
   <div id="panel">
-    <h3>Model</h3><select id="picker"></select>
-    <div id="count"></div>
+    <div id="modes"><button id="m-asm" class="on">Assemblies</button><button id="m-parts">Parts</button></div>
+    <div id="asm-box">
+      <h3>Model</h3><select id="picker"></select>
+      <div id="count"></div>
+    </div>
+    <div id="parts-box" hidden>
+      <h3>Library</h3><div id="plist"></div>
+      <div id="param" hidden>
+        <h3>Parametric V-slot</h3>
+        <select id="p-profile"></select> length (mm) <input id="p-len" type="number" value="300" min="20" max="2000" step="10" style="width:70px">
+      </div>
+      <label><input type="checkbox" id="t-ports" checked> Port frames</label>
+      <label><input type="checkbox" id="t-labels" checked> Port labels</label>
+    </div>
     <h3>Display</h3>
     <label><input type="checkbox" id="t-world" checked> World axes</label>
     <label><input type="checkbox" id="t-part" checked> Selected part axes</label>

@@ -14,6 +14,7 @@ const listModels = () =>
         .map((d) => d.name).sort()
     : [];
 
+const libDir = path.resolve(root, '../library');
 const MIME = { '.glb': 'model/gltf-binary', '.json': 'application/json' };
 
 function modelsPlugin() {
@@ -23,12 +24,13 @@ function modelsPlugin() {
     resolveId: (s) => (s === id ? rid : null),
     load: (s) => (s === rid ? `export default ${JSON.stringify(listModels())};` : null),
     configureServer(server) {
-      server.middlewares.use('/models', (req, res, next) => {
-        const file = path.join(modelsDir, decodeURIComponent(req.url.split('?')[0]));
-        if (!file.startsWith(modelsDir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return next();
-        res.setHeader('Content-Type', MIME[path.extname(file)] || 'application/octet-stream');
-        fs.createReadStream(file).pipe(res);
-      });
+      for (const [url, dir] of [['/models', modelsDir], ['/library', libDir]])
+        server.middlewares.use(url, (req, res, next) => {
+          const file = path.join(dir, decodeURIComponent(req.url.split('?')[0]));
+          if (!file.startsWith(dir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return next();
+          res.setHeader('Content-Type', MIME[path.extname(file)] || 'application/octet-stream');
+          fs.createReadStream(file).pipe(res);
+        });
     },
     closeBundle() { // build: copy only what the viewer loads
       const out = path.resolve(root, 'dist/models');
@@ -37,6 +39,7 @@ function modelsPlugin() {
         for (const f of ['assembly.glb', 'catalog.json'])
           fs.copyFileSync(path.join(modelsDir, m, f), path.join(out, m, f));
       }
+      if (fs.existsSync(libDir)) fs.cpSync(libDir, path.resolve(root, 'dist/library'), { recursive: true }); // part.glb, part.json, index.json
     },
   };
 }

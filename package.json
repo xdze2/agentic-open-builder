@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "convert": "node tools/convert_all.mjs",
+    "library": "node tools/build_library.mjs",
     "dev": "vite --config viewer/vite.config.js",
     "build": "vite build --config viewer/vite.config.js",
     "preview": "vite preview --config viewer/vite.config.js"
