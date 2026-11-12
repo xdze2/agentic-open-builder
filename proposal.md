@@ -84,6 +84,22 @@ Vite + three.js, no backend.
 - The Y rail is cantilevered on the X carriage: check sag/stiffness at the far end.
 - Pen lift mechanism (typically a servo) is not specified yet.
 
-## 6. Open question
+## 6. Available STEP sources (`parts/`)
 
-Parts in pure JS (browser only, chosen to start), or in Python/CadQuery (could also export STEP for 3D-printing custom brackets later)?
+Two GrabCAD STEP files (mm, 2019):
+
+- **Nema 17 Stepper Motor**: single solid, ready to use; only ports need adding.
+- **V-Slot Belt and Pinion Actuator 500mm**: a complete axis. The file is flattened (no assembly tree), but all 47 solids are named: 20x60x500 rail, gantry plate 20-80mm, 4 solid V wheels (+ bearings, shims), eccentric/aluminium spacers, M5/M3 hardware, NEMA17 motor mount plate, NEMA17, GT2 20T pulley, routed GT2 belt 585mm, tee nuts.
+
+Consequences:
+
+- Real dimensions (wheel spacing, eccentric offset, plate holes) can be read from this file instead of drawings.
+- Repeated parts are baked copies at world positions; reusable parts need canonicalizing (pick one instance, find its axis, move to origin; the removed offset becomes the port position on the parent).
+- Conversion: `occt-import-js` (OpenCascade WASM, npm) → per-solid GLB + catalog JSON.
+- **Hybrid approach**: real meshes for hardware (plates, wheels, motor, pulley), parametric code for variable-length parts (V-slot cut to length, belt).
+- Missing: 20x20 rail, mini gantry plate, pen holder.
+
+## 7. Open questions
+
+- **Rail / gantry plate sizes are not decided yet** (20x60 vs other profiles for X, and the matching gantry plate: 20-80mm in the actuator file, wide/mini variants). The parts library should make swapping sizes easy.
+- Parts in pure JS (browser only, chosen to start), or in Python/CadQuery (could also export STEP for 3D-printing custom brackets later)?

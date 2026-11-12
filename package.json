@@ -1,0 +1,16 @@
+{
+  "name": "openbuilds_studio2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "convert": "node tools/convert_all.mjs"
+  },
+  "keywords": [],
+  "type": "module",
+  "private": "true",
+  "dependencies": {
+    "@gltf-transform/core": "4.5.1",
+    "occt-import-js": "0.0.23"
+  }
+}
