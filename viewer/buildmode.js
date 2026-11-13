@@ -6,7 +6,7 @@ import { solve, AsmError, findPort } from '../lib/assembly.js';
 import * as m4 from '../lib/mat.js';
 import { railGeometry } from './vslot.js';
 import { beltGeometry, beltClamps } from './belt.js';
-import { slotsOf, FACES } from '../lib/vslot_ports.js';
+import { slotsOf, FACES, PROFILES } from '../lib/vslot_ports.js';
 import { edgePorts } from '../lib/assembly.js';
 import { short, portWords } from './prompt.js';
 
@@ -114,7 +114,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
       const t = def.dims[2], face = Math.abs(p[2]) < Math.abs(p[2] - t) ? 'front' : 'back';
       for (const h of def.holes) consider(`${face}:${h.name}${h.alias ? ` (${h.alias})` : ''}`, [h.x, h.y, face === 'front' ? 0 : t], { hole: h, face });
     }
-    if (def.profile) { // rail: face + slot + position along the rail
+    if (PROFILES[def.profile]) { // V-slot rail (not a belt, whose profile is GT2/GT3): face + slot + position along the rail
       const [W, H] = [def.dims[0], def.dims[1]];
       const fs = Object.entries(FACES).map(([f, { n }]) => [f, Math.abs(p[0] * n[0] + p[1] * n[1] - (n[0] ? W : H) / 2)]).sort((a, b) => a[1] - b[1])[0];
       if (fs[1] < 1.5) {
@@ -147,7 +147,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
     if (!hit) { selected = null; marker.visible = false; edgeLine.visible = false; $('info').textContent = 'Click a part.'; treeSelect(null); return; }
     selected = hit.object; selected.material = highlight; treeSelect(selected.userData.name);
     const d = describeHit(hit), copy = (s) => `<div class="copy" title="click to copy">${s}</div>`;
-    $('info').innerHTML = `<b>${d.name}</b><br>part: ${d.def.slug}<br>size: ${dimsText(d.def.dims)}<br>type: ${d.def.type}${d.def.profile ? ` (${d.def.profile}${d.def.length ? `, parametric, cut ${d.def.length} mm` : ' library mesh'})` : ''}<br>` +
+    $('info').innerHTML = `<b>${d.name}</b><br>part: ${d.def.slug}<br>size: ${dimsText(d.def.dims)}<br>type: ${d.def.type}${PROFILES[d.def.profile] ? ` (${d.def.profile}${d.def.length ? `, parametric, cut ${d.def.length} mm` : ' library mesh'})` : ''}<br>` +
       `hit (part frame): ${d.p.map(f2).join(', ')} mm<br>` +
       (d.edge ? `edge <b>${d.edge.e.name}</b> (${f2(d.edge.d)} mm away, length ${f2(d.edge.e.length)} mm)<br>` : '') +
       (d.port && !d.edge ? `nearest port: <b>${d.port.label}</b> (${f2(d.port.d)} mm away${d.port.extra?.hole ? `, hole d${d.port.extra.hole.d}` : ''})<br>` : '') +
