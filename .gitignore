@@ -4,3 +4,6 @@ node_modules/
 viewer/dist
 snaps/
 models/*/thumb.png
+
+# Restricted-license parts (Printables, CC BY-NC-ND 4.0): local only, never commit
+library/openbuilds-scribe-*/
