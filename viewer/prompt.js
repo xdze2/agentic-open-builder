@@ -265,7 +265,7 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
     for (const t of toks) if (t.t === 'chip' && !seen.has(t.label + '|' + t.ref)) { seen.add(t.label + '|' + t.ref); refs.push(`- «${t.label}» = ${t.ref}  ${describeRef(t.ref)}`); }
     return [`[plotter viewer] ${getContext()}`, `Request: ${req}`,
       ...(refs.length ? ['References:', ...refs] : []),
-      ...(toks.some((t) => t.t === 'chip' && t.ref.startsWith('lib:')) ? ['(lib:<slug> = a library part, used in the assembly JSON as {"part": "<slug>"}; lib:vslot-<profile> = a parametric V-Slot rail)'] : []),
+      ...(toks.some((t) => t.t === 'chip' && t.ref.startsWith('lib:')) ? ['(lib:<slug> = a library part, used in the assembly JSON as {"part": "<slug>"}; lib:vslot-<profile> = a parametric V-Slot rail; lib:gt2-belt-6mm etc. = a parametric belt, used in a "belts" entry)'] : []),
       ...(images ? ['Screenshots (open each one with the Read tool; orthographic views, so the scale is the same everywhere in an image):', images] : []),
       'Read docs/VOCABULARY.md, edit the assembly JSON, run `node tools/solve.mjs <file>` to check it.'].join('\n');
   }

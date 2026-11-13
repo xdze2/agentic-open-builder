@@ -73,6 +73,10 @@ try {
     // parametric profile cards (Parts tab, Rails group): rendered at 500 mm
     const { PROFILES } = await import('../lib/vslot_ports.js');
     for (const k of Object.keys(PROFILES)) items.push({ t: { kind: 'part', id: 'vslot-' + k, len: 500 }, out: path.join(lib, '_thumbs', `vslot-${k}.png`), src: vsrc });
+    // parametric belt cards (Parts tab, belt group): a straight 200 mm piece
+    const { BELTS } = await import('../lib/belt.js');
+    const bsrc = Math.max(mtime(path.join(root, 'viewer/belt.js')), mtime(path.join(root, 'lib/belt.js')));
+    for (const k of Object.keys(BELTS)) items.push({ t: { kind: 'part', id: k }, out: path.join(lib, '_thumbs', `${k}.png`), src: bsrc });
     const ad = ASSEMBLIES;
     const afiles = fs.readdirSync(ad).filter((f) => f.endsWith('.json') && !f.startsWith('_'));
     const asrc = Math.max(...afiles.map((f) => mtime(path.join(ad, f))), mtime(path.join(root, 'lib/assembly.js')));

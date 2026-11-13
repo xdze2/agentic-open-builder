@@ -5,7 +5,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { solve, AsmError, findPort } from '../lib/assembly.js';
 import * as m4 from '../lib/mat.js';
 import { railGeometry } from './vslot.js';
-import { slotsOf, FACES } from '../lib/vslot_ports.js';
+import { beltGeometry, beltClamps } from './belt.js';
+import { slotsOf, FACES, PROFILES } from '../lib/vslot_ports.js';
 import { edgePorts } from '../lib/assembly.js';
 import { short, portWords } from './prompt.js';
 
@@ -30,6 +31,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
     assembly: (f) => fetch(`assemblies/${f}`, { cache: 'no-store' }).then((r) => { if (!r.ok) throw new AsmError(`cannot load assemblies/${f}`); return r.json(); }),
   };
   async function geometryOf(inst) {
+    if (inst.def.parametric === 'belt') return beltGeometry(inst.def);
     if (inst.def.parametric && inst.def.length) return railGeometry(inst.def.profile, inst.def.length);
     if (!geoCache.has(inst.slug)) {
       const g = await new GLTFLoader().loadAsync(`library/${inst.slug}/part.glb`);
@@ -56,13 +58,20 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
       for (const inst of res.instances) {
         const mesh = new THREE.Mesh(await geometryOf(inst), matFor(inst.def.type));
         mesh.matrixAutoUpdate = false; mesh.userData = { name: inst.name }; stage.decorate(mesh);
+        if (inst.def.parametric === 'belt') beltClamps(mesh, inst.def);
         group.add(mesh); meshes.set(inst.name, mesh);
       }
       rebuild.names = names; selected = null;
       for (const n of [...hidden]) if (!meshes.has(n)) hidden.delete(n);
       buildTree(); applyVisibility();
     }
-    for (const inst of res.instances) { const m = meshes.get(inst.name); m.matrix.copy(toMatrix(inst.M)); m.matrixWorldNeedsUpdate = true; }
+    for (const inst of res.instances) {
+      const m = meshes.get(inst.name); m.matrix.copy(toMatrix(inst.M)); m.matrixWorldNeedsUpdate = true;
+      if (inst.def.parametric === 'belt') { // the path follows the clamps (carriage) and the pulleys: new geometry, edges and clamp spheres
+        const g = beltGeometry(inst.def);
+        if (m.geometry !== g) { m.geometry = g; for (const c of m.children.filter((o) => o.userData.isEdges)) m.remove(c); m.userData.hasEdges = false; stage.decorate(m); beltClamps(m, inst.def); }
+      }
+    }
     group.updateMatrixWorld(true);
     renderPanel(); hover(null); prompt.refresh();
     if (reselect && meshes.has(reselect)) show({ object: meshes.get(reselect), point: centerOf(res.instances.find((i) => i.name === reselect)) }, true);
@@ -79,7 +88,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
         `<sl-range data-j="${j.state}" min="${j.range ? j.range[0] : 0}" max="${j.range ? j.range[1] : 500}" step="0.5" value="${j.value}"></sl-range></div>`).join('') || '<i>none</i>';
       $('b-sliders').querySelectorAll('sl-range').forEach((el) => el.addEventListener('sl-input', () => { overrides[el.dataset.j] = +el.value; $('jv-' + el.dataset.j).textContent = el.value; scheduleUpdate(); }));
     } else for (const j of res.joints) { const el = $('jv-' + j.state); if (el) el.textContent = j.value; }
-    $('b-bom').innerHTML = '<table>' + res.bom.map((r) => `<tr><td>${r.count} x</td><td>${r.type}</td><td>${r.cut_length ? `${r.profile || ''} V-slot rail, cut <b>${r.cut_length} mm</b>${r.parametric ? '' : ' (library mesh)'}, ${dimsText(r.dims)}` : `${r.slug} <span style="color:var(--sl-color-neutral-500)">${dimsText(r.dims)}</span>`}</td></tr>`).join('') + '</table>' +
+    $('b-bom').innerHTML = '<table>' + res.bom.map((r) => `<tr><td>${r.count} x</td><td>${r.type}</td><td>${r.belt_length ? `${r.name.split(',')[0]}, ${r.open ? 'cut length' : 'endless loop'} <b>${r.belt_length} mm</b> (parametric)` : r.cut_length ? `${r.profile || ''} V-slot rail, cut <b>${r.cut_length} mm</b>${r.parametric ? '' : ' (library mesh)'}, ${dimsText(r.dims)}` : `${r.slug} <span style="color:var(--sl-color-neutral-500)">${dimsText(r.dims)}</span>`}</td></tr>`).join('') + '</table>' +
       `<div style="color:var(--sl-color-neutral-500)">${res.instances.length} instances</div>`;
     $('b-mounts').innerHTML = res.mounts.map((m) => `<b>${m.name}</b>: ${m.rail} on ${m.plate} ${m.plate_face}, ${m.direction}, overhang ${m.overhang} mm` +
       (m.screw ? `<br>screw ${m.screw.slug.replace('low-profile-screw-m5-9x9x', 'M5 LP ')} (L${m.screw.length}, +${m.screw.protrusion} mm through)<br>` + m.fasteners.map((h) => `${h.hole} @ ${h.at_mm_from_end_a} mm`).join('<br>') : '')).join('<hr>') || '<i>none</i>';
@@ -92,7 +101,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
   // ---- naming: instance, port / hole nearest to a hit ----
   const f2 = (v) => +v.toFixed(2);
   const dimsText = (d) => d.map((v) => +(+v).toFixed(1)).join(' × ') + ' mm';
-  const bomText = (r) => `${r.cut_length ? `${r.profile || ''} V-slot rail, cut ${r.cut_length} mm${r.parametric ? '' : ' (library mesh)'}` : r.slug}${r.cut_length ? '' : `  (${dimsText(r.dims)})`}`;
+  const bomText = (r) => r.belt_length ? `${r.name.split(',')[0]}, ${r.open ? 'cut length' : 'endless loop'} ${r.belt_length} mm (parametric)` : `${r.cut_length ? `${r.profile || ''} V-slot rail, cut ${r.cut_length} mm${r.parametric ? '' : ' (library mesh)'}` : r.slug}${r.cut_length ? '' : `  (${dimsText(r.dims)})`}`;
   function describeHit(hit) {
     const name = hit.object.userData.name, inst = res.instances.find((i) => i.name === name);
     const def = inst.def, p = m4.point(m4.inv(inst.M), hit.point.toArray());
@@ -105,7 +114,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
       const t = def.dims[2], face = Math.abs(p[2]) < Math.abs(p[2] - t) ? 'front' : 'back';
       for (const h of def.holes) consider(`${face}:${h.name}${h.alias ? ` (${h.alias})` : ''}`, [h.x, h.y, face === 'front' ? 0 : t], { hole: h, face });
     }
-    if (def.profile) { // rail: face + slot + position along the rail
+    if (PROFILES[def.profile]) { // V-slot rail (not a belt, whose profile is GT2/GT3): face + slot + position along the rail
       const [W, H] = [def.dims[0], def.dims[1]];
       const fs = Object.entries(FACES).map(([f, { n }]) => [f, Math.abs(p[0] * n[0] + p[1] * n[1] - (n[0] ? W : H) / 2)]).sort((a, b) => a[1] - b[1])[0];
       if (fs[1] < 1.5) {
@@ -138,7 +147,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
     if (!hit) { selected = null; marker.visible = false; edgeLine.visible = false; $('info').textContent = 'Click a part.'; treeSelect(null); return; }
     selected = hit.object; selected.material = highlight; treeSelect(selected.userData.name);
     const d = describeHit(hit), copy = (s) => `<div class="copy" title="click to copy">${s}</div>`;
-    $('info').innerHTML = `<b>${d.name}</b><br>part: ${d.def.slug}<br>size: ${dimsText(d.def.dims)}<br>type: ${d.def.type}${d.def.profile ? ` (${d.def.profile}${d.def.length ? `, parametric, cut ${d.def.length} mm` : ' library mesh'})` : ''}<br>` +
+    $('info').innerHTML = `<b>${d.name}</b><br>part: ${d.def.slug}<br>size: ${dimsText(d.def.dims)}<br>type: ${d.def.type}${PROFILES[d.def.profile] ? ` (${d.def.profile}${d.def.length ? `, parametric, cut ${d.def.length} mm` : ' library mesh'})` : ''}<br>` +
       `hit (part frame): ${d.p.map(f2).join(', ')} mm<br>` +
       (d.edge ? `edge <b>${d.edge.e.name}</b> (${f2(d.edge.d)} mm away, length ${f2(d.edge.e.length)} mm)<br>` : '') +
       (d.port && !d.edge ? `nearest port: <b>${d.port.label}</b> (${f2(d.port.d)} mm away${d.port.extra?.hole ? `, hole d${d.port.extra.hole.d}` : ''})<br>` : '') +
@@ -222,24 +231,30 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
   const treeEl = $('b-tree'), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   let syncing = false, hoverKey = null;
   const hex = (t) => '#' + new THREE.Color(colorOfType(t)).getHexString();
-  const detailOf = (d) => (d.profile ? `${d.profile} V-slot, ${+(d.length ?? d.dims[2]).toFixed(1)} mm` : d.slug);
+  const detailOf = (d) => (d.parametric === 'belt' ? `${d.slug}, ${d.closed ? 'loop' : 'cut'} ${d.length.toFixed(1)} mm` : d.profile ? `${d.profile} V-slot, ${+(d.length ?? d.dims[2]).toFixed(1)} mm` : d.slug);
   const ACT = (act, icon, tip) => `<sl-icon-button name="${icon}" data-act="${act}" label="${tip}" title="${tip}"></sl-icon-button>`;
   function snapshotTree() { if (treeEl.dataset.filtering) return; for (const [k, it] of items) if (it.dataset.group) expState.set(k, it.expanded); }
   function buildTree() {
     items.clear(); groupNames.clear();
+    // folders = inst.group (from "group" in the assembly JSON, plus the sub-assembly name); generated fasteners go in a collapsed "Fasteners" folder of their group
     const mountNames = new Set(res.mounts.map((m) => m.name));
-    const root = { key: 'g:root', label: file.replace(/\.json$/, ''), kids: [], root: true }, fast = { key: 'g:fasteners', label: 'Fasteners', kids: [], dflt: false, note: 'generated screws and tee nuts' };
-    const groups = new Map([['', root]]);
+    const root = { key: 'g:root', label: file.replace(/\.json$/, ''), kids: [], root: true };
+    const groups = new Map([['', root]]), fasts = new Map();
     const groupAt = (path) => { // path of segments
       const k = path.join('/'); if (groups.has(k)) return groups.get(k);
       const parent = groupAt(path.slice(0, -1)), g = { key: 'g:' + k, label: path[path.length - 1], kids: [] };
       groups.set(k, g); parent.kids.push(g); return g;
     };
     for (const inst of res.instances) {
-      const seg = inst.name.split('/'), dir = seg.slice(0, -1).join('/');
-      (mountNames.has(dir) ? fast : groupAt(seg.slice(0, -1))).kids.push({ key: inst.name, inst, label: seg[seg.length - 1] });
+      const seg = inst.name.split('/'), path = inst.group || seg.slice(0, -1);
+      const isFast = inst.fastener || mountNames.has(seg.slice(0, -1).join('/'));
+      const leaf = { key: inst.name, inst, label: isFast ? seg.slice(-2).join('/') : seg[seg.length - 1] };
+      if (!isFast) { groupAt(path).kids.push(leaf); continue; }
+      const k = path.join('/');
+      if (!fasts.has(k)) fasts.set(k, { key: 'g:' + k + '//fasteners', label: 'Fasteners', kids: [], dflt: false, note: 'generated screws and tee nuts', parent: groupAt(path) });
+      fasts.get(k).kids.push(leaf);
     }
-    if (fast.kids.length) root.kids.push(fast);
+    for (const f of fasts.values()) f.parent.kids.push(f);
     const names = (n) => (n.inst ? [n.key] : n.kids.flatMap(names));
     const html = (n) => {
       if (n.inst) {

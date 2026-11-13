@@ -77,7 +77,7 @@ UI is Shoelace (`@shoelace-style/shoelace` 2.20.1, light theme, cherry-picked im
   - Hover a chip -> the piece glows. Click a chip -> select + camera fly.
   - Stale refs turn grey after an edit.
   - Draft in localStorage `ob_prompt_draft_v1`.
-- **Structure tree** (`buildmode.js`, `sl-tree selection="leaf"`): root assembly > sub-assemblies (from the `a/b` instance-name prefix) > instances, with a swatch (part tint), name and part/profile + cut length. Generated mount fasteners (instances under a mount name) sit in a collapsed "Fasteners" group. Row click = `focus(name)` (same path as a chip click: select, info, camera fly); a 3D click calls `treeSelect` (expands parents, scrolls into view). Hover glows the piece. Per row: insert-in-prompt (`prompt.insertChip({ref: name, label})`, same ref as a 3D click) and an eye (shift-click = isolate); header: filter, Isolate (selected instance), Show all. Hidden meshes are `visible=false` and filtered out of `hitAt`, so they cannot be picked. On live reload the tree is rebuilt; expansion (`expState`), hidden set and the selection are kept where the names still exist. Not done: flat tree for STEP models.
+- **Structure tree** (`buildmode.js`, `sl-tree selection="leaf"`): root assembly > functional groups (the `"group": "Y axis/carriage"` field on parts, mounts and belts, passed through by the solver as `inst.group`; sub-assemblies add their own name and their own groups) > instances, with a swatch (part tint), name and part/profile + cut length. Generated mount fasteners sit in a collapsed "Fasteners" folder inside their mount's group. Row click = `focus(name)` (same path as a chip click: select, info, camera fly); a 3D click calls `treeSelect` (expands parents, scrolls into view). Hover glows the piece. Per row: insert-in-prompt (`prompt.insertChip({ref: name, label})`, same ref as a 3D click) and an eye (shift-click = isolate); header: filter, Isolate (selected instance), Show all. Hidden meshes are `visible=false` and filtered out of `hitAt`, so they cannot be picked. On live reload the tree is rebuilt; expansion (`expState`), hidden set and the selection are kept where the names still exist. Not done: flat tree for STEP models.
 - Resizing the window keeps the zoom (px/mm); `fit` recomputes it.
 - The Z-up camera fix: `camera.up` must be set **before** OrbitControls is created.
 
@@ -150,5 +150,5 @@ Views: iso top bottom front back right left. `--no-axes`, `--no-grid`, `--len <m
 1. Y axis: a carriage on the 20x20 beam (mini V wheel plate + delrin mini V wheels, already in the library), a second joint `y`.
 2. Pen lift: SCRIBE on the carriage (an adapter or router mount), plus a servo and the 9x40 mm linear guide.
 3. `touch` option for mounts/mates (1D: along the slide axis only), only if "until it touches" requests keep coming up. It would replace the hand-computed `end_a_at: -21.65`.
-4. Belts (parametric GT2), motor mount screws, collision check.
+4. Belt clamp hardware on the carriage (clamp points are only marked), motor mount screws, collision check.
 5. Later: SEND button + queue file; Mistral benchmark. STEP models have no structure tree.

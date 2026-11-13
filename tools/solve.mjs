@@ -30,18 +30,24 @@ let res;
 try { res = await solve(asm, nodeLoader, { state, file: path.basename(file) }); }
 catch (e) { if (e instanceof AsmError) { console.error('ERROR: ' + e.message); process.exit(1); } throw e; }
 
-if (args.includes('--json')) { console.log(JSON.stringify({ state: res.state, joints: res.joints, mounts: res.mounts, bom: res.bom, instances: res.instances.map((i) => ({ name: i.name, slug: i.slug, M: i.M })) })); process.exit(0); }
+if (args.includes('--json')) { console.log(JSON.stringify({ state: res.state, joints: res.joints, mounts: res.mounts, belts: res.belts, bom: res.bom, instances: res.instances.map((i) => ({ name: i.name, slug: i.slug, group: i.group, ...(i.fastener ? { fastener: true } : {}), M: i.M })) })); process.exit(0); }
 const f = (v) => v.toFixed(2).padStart(8);
 console.log(`${path.basename(file)}: ${res.instances.length} instances`);
 console.log(`state: ${JSON.stringify(res.state)}`);
 for (const j of res.joints) console.log(`joint ${j.state}: prismatic along ${j.axis}, range ${j.range ? j.range.join('..') : 'free'}, value ${j.value}  (${j.label})`);
 for (const w of res.warnings) console.log('WARNING: ' + w);
 console.log('\nBOM');
-for (const r of res.bom) console.log(`  ${String(r.count).padStart(3)} x ${r.type.padEnd(8)} ${r.cut_length ? `${r.slug}  [rail, cut length ${r.cut_length} mm${r.parametric ? ', parametric' : ', library mesh'}]` : r.slug}`);
+for (const r of res.bom) console.log(`  ${String(r.count).padStart(3)} x ${r.type.padEnd(8)} ${r.cut_length ? `${r.slug}  [rail, cut length ${r.cut_length} mm${r.parametric ? ', parametric' : ', library mesh'}]` : r.belt_length ? `${r.slug}  [belt, ${r.open ? 'cut length' : 'endless loop'} ${r.belt_length} mm, parametric]` : r.slug}`);
 for (const m of res.mounts) {
   console.log(`\nmount ${m.name}: rail '${m.rail}' on ${m.plate} (${m.plate_face} face), direction ${m.direction}, line ${m.line}, end_a at ${m.end_a_at}, overhang ${m.overhang} mm, rail on plate over ${m.rail_span_on_plate.join('..')}`);
   if (m.screw) console.log(`  screw ${m.screw.slug} (L ${m.screw.length}, stack ${m.screw.stack}, protrusion ${m.screw.protrusion}; choices ${m.screw.choices.join('/')})`);
   for (const h of m.fasteners) console.log(`  fastener at hole ${h.hole} (d ${h.d}), plate-local (${h.plate_local}), ${h.at_mm_from_end_a} mm from end_a`);
+}
+for (const b of res.belts || []) {
+  console.log(`\nbelt ${b.name}: ${b.part}, ${b.width} mm wide, ${b.open ? 'open, cut length' : 'endless loop'} ${b.length} mm (${b.teeth} teeth)`);
+  for (const c of b.clamps || []) console.log(`  clamp at ${c.ref} (${c.offset} mm from the belt line)`);
+  for (const p of b.around) console.log(`  around ${p.pulley}: belt radius ${p.radius} mm, wrap ${p.wrap_deg} deg`);
+  for (const s of b.spans) console.log(`  span ${s.from} -> ${s.to}: ${s.length} mm`);
 }
 if (args.includes('--positions')) {
   console.log('\nPOSES (origin xyz, local-x / local-z axes in world)');

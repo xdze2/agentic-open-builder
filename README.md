@@ -4,6 +4,10 @@ Design a machine from OpenBuilds parts by talking to an AI agent. Point at parts
 
 The example project is a table-top pen plotter.
 
+![Demo: a request written with parts clicked in 3D, then the result: the motor fixed at the rail end with a rotating belt](docs/demo/demo.gif)
+
+([MP4 version](docs/demo/demo.mp4); re-record with `node tools/demo_anim.mjs --gpu`)
+
 ![Front app (3D view, parts, prompt), local backend (JSON and CAD files) and the Claude agent](docs/workflow.excalidraw.svg)
 
 - **Assemblies** are JSON files (`user_data/assemblies/*.json`) written in a small assembly language ([docs/VOCABULARY.md](docs/VOCABULARY.md)).
@@ -98,7 +102,7 @@ user_data/
   snaps/        snapshot output
 ```
 
-More details: [docs/HANDOFF.md](docs/HANDOFF.md).
+More details: [docs/HANDOFF.md](docs/HANDOFF.md). Ideas, open issues and a record of finished work: [backlog/](backlog/README.md).
 
 ## License
 

@@ -26,7 +26,9 @@ A part entry is one of:
 - `{"part": "vslot-20x20", "length": 500}`: a parametric V-slot cut to length (`vslot-20x20`, `vslot-20x40`, `vslot-20x60`). It shows up in the BOM as a cut length.
 - `{"assembly": "actuator_2060_500.json"}`: a sub-assembly (a file in `user_data/assemblies/`); it moves as one rigid group.
 
-Types: `rail`, `plate`, `wheel`, `motor`, `pulley`, `screw`, `nut`, `tee_nut`, `spacer`, `shim`, `bearing`, `block`.
+**Groups (structure tree only).** Any part, mount or belt can carry `"group": "Y axis/carriage/wheel 1"` (`/` nests folders). Groups are sorted by function (X axis, Y axis, then carriage / drive / wheel N ...). They only set the folders of the viewer's Structure tree: refs, mates and the BOM ignore them, so you can move a piece to another group without breaking anything. A sub-assembly's pieces sit under `<its group>/<sub-assembly name>/<group inside the sub-assembly file>`. A mount's generated screws and nuts go in a collapsed "Fasteners" folder inside the mount's group. Give every new piece a group.
+
+Types: `rail`, `plate`, `wheel`, `motor`, `pulley`, `screw`, `nut`, `tee_nut`, `spacer`, `shim`, `bearing`, `block`, `belt` (parametric source part from `lib/belt.js`, routed by `belts`).
 
 ## 3. Ports, faces, positions
 
@@ -105,6 +107,20 @@ Plate-local frame: origin at the plate centre, **x** along the longest side (127
 
 What a mount does: puts the rail face on the plate face (with `direction`, `line`, `overhang`); finds the plate holes whose centres lie within `tolerance` of the slot line, inside the rail span (minus `margin`), and spreads `count` of them over it; puts a tee nut in the slot under each hole (at the right distance from `end_a`) and a screw through the hole from the OTHER face of the plate; picks the shortest listed screw whose shank exceeds plate + gap + lip (1.8) + nut thickness by `min_protrusion`. It fails with a message listing the plate lines that do have holes under the rail when nothing lines up.
 
+### `belts`: a timing belt routed around pulleys
+```json
+"belts": [{ "name": "y_belt", "part": "gt2-belt-6mm",
+            "from": "carriage.edge_+y", "around": ["y_idler", "y_pulley"], "to": "carriage.edge_-y" }]
+```
+| Key | Meaning | Default |
+|---|---|---|
+| `name` | instance name of the belt (shows in the BOM and the tree) | required |
+| `part` | belt source part from the catalogue in `lib/belt.js`: `gt2-belt-6mm`, `gt2-belt-9mm`, `gt3-belt-9mm` (profile, pitch, width, thickness, material; sold by length) | `gt2-belt-6mm` |
+| `around` | pulley instances (at least 2). An entry is a name, or `{"pulley", "radius", "offset", "port"}` | required |
+| `from`, `to` | clamp ports of an **open** belt (both or neither). The belt is cut where the loop passes nearest to each port and runs from `from` round every pulley to `to` (the two clamps must sit on the same span). Without them: an endless loop | |
+
+A belt is solved after every mate and mount, so it follows a moving carriage. It wraps the outside of every pulley (convex loop) in the plane perpendicular to the first pulley's axis. The BOM row is `<part> x <length>`: the **cut length** clamp to clamp for an open belt (no allowance for the clamps themselves), the loop length for an endless one. Per pulley, `radius` is the belt centre-line radius and `offset` the belt plane along the pulley axis from its `center` port. Defaults (`lib/belt.js` `beltSeat`): GT2/GT3 timing pulleys use the pitch radius (teeth x pitch / 2 pi) and offset -2.5 (teeth at local z -6..+1, hub with grub screws toward +Z); the smooth idler pulley uses running surface 17.5 mm + half a belt and offset 0. Any other part needs an explicit `radius`. Pulleys more than 0.5 mm off the belt plane, or a clamp port more than 20 mm from the belt, give a warning. The belt is drawn as a flat band without teeth; clamp points are red spheres. In the Parts tab the belts have cards (`lib:gt2-belt-6mm` chips); `{"part": "gt2-belt-6mm", "length": 300}` in `parts` is a straight loose piece.
+
 ## 5. Plain text to JSON
 
 1. "Put a 500 mm 20x20 beam flat on the gantry plate front face, pointing down, 440 mm hanging out, two M5 screws."
@@ -117,6 +133,8 @@ What a mount does: puts the rail face on the plate face (with `direction`, `line
    `"fasten": {"count": 2, "holes": ["front@-20,0", "front@-50,0"]}` (the screw still enters from the far face).
 5. "Put a motor on the gantry mount plate." (low level mate)
    `{"a": "motor.face", "b": "mount.motor"}`; "a pulley 9 mm above the motor face": `{"a": "pulley.end_a", "b": "motor.face", "offset": [0,0,9]}`.
+6. "The belt starts at the carriage front edge, goes round the tension pulley, then the motor, and back to the carriage."
+   `"belts": [{"name": "y_belt", "part": "gt2-belt-6mm", "from": "carriage.edge_+y", "around": ["y_idler", "y_pulley"], "to": "carriage.edge_-y"}]`; `node tools/solve.mjs` prints the cut length, the clamps and the wrap angle on each pulley.
 
 ## 6. How to talk to the agent (click -> chip -> copy -> paste)
 

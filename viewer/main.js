@@ -22,6 +22,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import modelNames from 'virtual:models';
 import { PROFILES, railGeometry, vslotPart } from './vslot.js';
 import { createBuild } from './buildmode.js';
+import { BELTS, isBelt, beltDef } from '../lib/belt.js';
+import { beltGeometry } from './belt.js';
 import { createPrompt, portWords } from './prompt.js';
 import { createSketch, describeMarks } from './sketch.js';
 import { createStage, VIEWS, GRID_MINOR, GRID_MAJOR } from './stage.js';
@@ -62,7 +64,7 @@ const f1 = (v) => +(+v).toFixed(1);
 const dimsText = (d) => d.map(f1).join(' × ') + ' mm';
 
 // ---- Parts ----
-const LIB_COLOR = { rail: 'rail', plate: 'plate', tee_nut: 'fastener', wheel: 'wheel', motor: 'motor', pulley: 'pulley',
+const LIB_COLOR = { belt: 'belt', rail: 'rail', plate: 'plate', tee_nut: 'fastener', wheel: 'wheel', motor: 'motor', pulley: 'pulley',
   screw: 'fastener', nut: 'fastener', spacer: 'fastener', bearing: 'fastener', shim: 'fastener', block: 'plate' };
 const colorOfType = (t) => (TYPES.find(([n]) => n === (LIB_COLOR[t] || 'other')) || TYPES[TYPES.length - 1])[2];
 let mode = null, libIndex = null, partGroup = null, curPart = null, curSlug = null, seq = 0; // mode: 'part' | 'build' | 'model'
@@ -121,6 +123,7 @@ function showPart(part, geometry, gltfScene) {
   $('hint').textContent = `Grid: ${GRID_MINOR} mm minor / ${GRID_MAJOR} mm major, fixed. Part frame at the origin: X red, Y green, Z blue. Port frames are small triads with labels (Z = out of the mating face). Units: mm.`;
   $('info').innerHTML =
     `<b>${part.name}</b><br>type: ${part.type}${part.parametric ? ' (parametric)' : ''}<br>size: ${dimsText(part.dims)}<br>` +
+    (part.parametric === 'belt' ? `${part.profile}, pitch ${part.pitch} mm, width ${part.width} mm, thickness ${part.thickness} mm (teeth ${part.tooth_height} mm, not drawn)<br>material: ${part.material}<br>sold by length; routed in an assembly with "belts"<br>` : '') +
     (part.source ? `source: ${part.source.model} / ${part.source.node}<br>found in ${part.foundIn.length} model(s), ${part.instances} instance(s)<br>` : '') +
     `frame: ${part.transform.frame}<br><b>ports (${part.ports.length})</b><table>` +
     part.ports.map((p) => `<tr><td>${p.name}</td><td>(${p.origin.map(f).join(', ')})  z(${p.z.map(f).join(',')})${p.diameter ? ` d${f(p.diameter)}` : ''}</td></tr>`).join('') + '</table>';
@@ -135,6 +138,15 @@ async function loadPart(slug) {
   curSlug = slug;
   showPart(part, null, gltf.scene);
   setCurrent('part', slug, part.name);
+}
+
+/** parametric belt (lib/belt.js): a straight 200 mm piece, teeth not drawn */
+function loadBelt(slug) {
+  enter('part'); ++seq;
+  curSlug = slug;
+  const def = beltDef(slug, { length: 200 });
+  showPart(def, beltGeometry(def), null);
+  setCurrent('part', slug, `${def.name} (parametric, sold by length)`);
 }
 
 const RAIL_LENGTHS = [250, 500, 750, 1000, 1500]; // OpenBuilds standard cut lengths
@@ -244,8 +256,8 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 // ---- prompt (global: every view). Library parts are chips too: lib:<slug> or lib:<slug>.<port> ----
 const libPart = (slug) => libIndex?.parts.find((p) => p.slug === slug);
 const isProfile = (slug) => slug.startsWith('vslot-') && PROFILES[slug.slice(6)];
-const libName = (slug) => (isProfile(slug) ? `V-Slot ${slug.slice(6)}` : libPart(slug)?.name || slug);
-const libType = (slug) => (isProfile(slug) ? 'rail' : libPart(slug)?.type);
+const libName = (slug) => (isProfile(slug) ? `V-Slot ${slug.slice(6)}` : isBelt(slug) ? BELTS[slug].name : libPart(slug)?.name || slug);
+const libType = (slug) => (isProfile(slug) ? 'rail' : isBelt(slug) ? 'belt' : libPart(slug)?.type);
 const splitLib = (ref) => { const r = ref.slice(4), dot = r.indexOf('.'); return dot < 0 ? [r, null] : [r.slice(0, dot), r.slice(dot + 1)]; };
 const hexOf = (c) => '#' + new THREE.Color(c).getHexString();
 /** selection for a click on the part shown in the part view: the nearest port when the click is close to one, else the part */
@@ -259,6 +271,7 @@ function partSel(pt) {
 }
 function promptContext() {
   if (mode === 'build' && build) return `assembly: user_data/assemblies/${build.file()}   state: ${JSON.stringify(build.state() || {})}`;
+  if (mode === 'part' && curSlug && isBelt(curSlug)) return `viewing parametric belt ${curSlug} (lib/belt.js)`;
   if (mode === 'part' && curSlug) return isProfile(curSlug) ? `viewing parametric rail V-Slot ${curSlug.slice(6)} (${railLen} mm)` : `viewing library part: user_data/library/${curSlug}/part.json`;
   if (mode === 'model' && current) return `viewing STEP model: user_data/models/${current.id}`;
   return 'no item open';
@@ -340,6 +353,7 @@ const prompt = createPrompt({
       if (!ref.startsWith('lib:')) return undefined;
       const [slug, port] = splitLib(ref);
       if (isProfile(slug)) return `parametric V-Slot ${slug.slice(6)} rail (any length)${port ? `, port ${port}` : ''}`;
+      if (isBelt(slug)) { const b = BELTS[slug]; return `parametric belt ${slug} (lib/belt.js): ${b.profile}, pitch ${b.pitch} mm, ${b.width} mm wide, ${b.thickness} mm thick, ${b.material}; sold by length, routed with a "belts" entry {"part": "${slug}"}`; }
       const lp = libPart(slug);
       if (!lp) return '(not in the library)';
       let s = `library part ${slug} (user_data/library/${slug}/part.json), type ${lp.type}, ${dimsText(lp.dims)}`;
@@ -350,6 +364,7 @@ const prompt = createPrompt({
     },
     library: () => [
       ...Object.keys(PROFILES).map((k) => ({ ref: 'lib:vslot-' + k, label: `V-Slot ${k}`, show: 'lib:vslot-' + k })),
+      ...Object.keys(BELTS).map((k) => ({ ref: 'lib:' + k, label: BELTS[k].name, show: 'lib:' + k })),
       ...(libIndex?.parts || []).filter((p) => !isStepRail(p)).map((p) => ({ ref: 'lib:' + p.slug, label: p.name, show: 'lib:' + p.slug })),
     ],
   },
@@ -399,6 +414,7 @@ async function initLists() {
   else {
     const groups = {};
     groups.rail = Object.keys(PROFILES).map((k) => card('part', 'vslot-' + k, `V-Slot ${k}`, `${PROFILES[k].map((n) => n * 20).join(' × ')} mm profile, any length`, `library/_thumbs/vslot-${k}.png`, 'rail parametric profile v-slot extrusion'));
+    groups.belt = Object.entries(BELTS).map(([k, b]) => card('part', k, b.name, `${b.width} mm wide, ${b.pitch} mm pitch, any length`, `library/_thumbs/${k}.png`, 'belt parametric timing gt2 gt3'));
     for (const p of libIndex.parts) if (!isStepRail(p)) (groups[p.type] ||= []).push(card('part', p.slug, p.name, dimsText(p.dims), `library/${p.slug}/thumb.png`, p.type));
     $('plist').innerHTML = Object.entries(groups).map(([t, c]) => group('parts', t, c)).join('');
   }
@@ -425,6 +441,7 @@ function setCurrent(kind, id, title) {
 }
 
 async function openItem(kind, id, o = {}) {
+  if (kind === 'part' && isBelt(id)) return loadBelt(id);
   if (kind === 'part') return id.startsWith('vslot-') ? loadParametric(id.slice(6), o.len) : loadPart(id);
   if (kind === 'asm') { await openBuild(id); if (o.state) await build.setState(o.state); return; }
   return load(id);
