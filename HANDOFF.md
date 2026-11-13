@@ -58,8 +58,8 @@ UI is Shoelace (`@shoelace-style/shoelace` 2.20.1, light theme, cherry-picked im
 
 - **Left: browser** (collapsible; a drawer under 900 px). Tabs **Parts** / **Assemblies** (`assemblies/*.json`) / **STEP models** (converted `models/`), each with a search box and thumbnail cards in collapsible groups (state in localStorage `ob_groups_v1`; a search expands the groups with matches). Card = thumb, name, size (`16 × 15.9 × 5 mm`). Rails = one card per parametric profile (20x20, 20x40, 20x60); opening one shows a length bar (250/500/750/1000/1500 + custom mm) above the 3D view. The fixed-length STEP rail meshes get no card (assemblies still use them; `#parts/<slug>` still opens them). Missing thumb -> placeholder icon.
 - **Centre: 3D view** with a slim top bar (browser toggle, title, **Bill of materials** button for assemblies, panel toggle). The prompt box sits at the bottom of the 3D view (assemblies only).
-- **Right: details panel** (collapsible; a drawer when narrow): Selection (copy-ready refs), Joints (sl-range), Mounts, Ports (parts), Display toggles. The BOM is a modal (sl-dialog) with "Copy as text". Solve errors show as a red banner over the 3D view.
-- **3D view** (`viewer/stage.js`): **orthographic only**. The frustum is in pixels, so `camera.zoom` = px per mm; near/far are generous and the camera sits at a constant 5000 mm. Fixed world-spaced grid: 10 mm minor / 100 mm major, +-1500 mm around the world origin (only Z follows the item; lines fade when too dense). Overlay top-right: zoom in/out, fit, Iso/Top/Front/Right (mirrored in the Display section); top-left: scale bar. Wheel zooms smoothly toward the cursor (own handler; OrbitControls only keeps touch pinch).
+- **Right: details panel** (collapsible; a drawer when narrow), assembly and part info only: **Structure** (assemblies), Selection (copy-ready refs), Joints (sl-range), Mounts. No display options here. The BOM is a modal (sl-dialog) with "Copy as text". Solve errors show as a red banner over the 3D view.
+- **3D view** (`viewer/stage.js`): **orthographic only**. The frustum is in pixels, so `camera.zoom` = px per mm; near/far are generous and the camera sits at a constant 5000 mm. Fixed world-spaced grid: 10 mm minor / 100 mm major, +-1500 mm around the world origin (only Z follows the item; lines fade when too dense). Overlay top-right: one toolbar with zoom in/out, fit, Iso/Top/Front/Right and a **View** `sl-dropdown` holding all display toggles (world axes, selected part axes, grid, shadows, edge lines, clicked port marker (build), port frames/labels (part), the grid hint). Toggle state in localStorage `ob_view_v1` (not applied in snap mode); top-left: scale bar. Wheel zooms smoothly toward the cursor (own handler; OrbitControls only keeps touch pinch).
 - **Shading**: world-fixed key directional light with a PCF-soft shadow map fitted to the item's bounding sphere (`fitScene(box)`), hemisphere + fill lights, NeutralToneMapping, ShadowMaterial ground plane, 30 deg edge-line overlay (Display toggles: Shadows, Edge lines). The shadow map is only re-rendered on `fitScene` (`renderer.shadowMap.autoUpdate=false`); call `stage.refreshShadows()` if you move meshes elsewhere. Materials use polygonOffset so the edge lines sit on the faces.
 - **Parametric rails** render the real library STEP profile stretched in Z (`railGeometry` in `vslot.js`; the library rails are pure extrusions); the simplified generated profile is only the fallback. Ports/picking come from `lib/vslot_ports.js`.
 - Click tolerances (mm in the part frame): plate edge 4, port/hole 5, widened to about 6 / 8 screen px when zoomed out (caps 10 / 12 mm).
@@ -72,6 +72,7 @@ UI is Shoelace (`@shoelace-style/shoelace` 2.20.1, light theme, cherry-picked im
   - Hover a chip -> the piece glows. Click a chip -> select + camera fly.
   - Stale refs turn grey after an edit.
   - Draft in localStorage `ob_prompt_draft_v1`.
+- **Structure tree** (`buildmode.js`, `sl-tree selection="leaf"`): root assembly > sub-assemblies (from the `a/b` instance-name prefix) > instances, with a swatch (part tint), name and part/profile + cut length. Generated mount fasteners (instances under a mount name) sit in a collapsed "Fasteners" group. Row click = `focus(name)` (same path as a chip click: select, info, camera fly); a 3D click calls `treeSelect` (expands parents, scrolls into view). Hover glows the piece. Per row: insert-in-prompt (`prompt.insertChip({ref: name, label})`, same ref as a 3D click) and an eye (shift-click = isolate); header: filter, Isolate (selected instance), Show all. Hidden meshes are `visible=false` and filtered out of `hitAt`, so they cannot be picked. On live reload the tree is rebuilt; expansion (`expState`), hidden set and the selection are kept where the names still exist. Not done: flat tree for STEP models.
 - Resizing the window keeps the zoom (px/mm); `fit` recomputes it.
 - The Z-up camera fix: `camera.up` must be set **before** OrbitControls is created.
 
@@ -135,12 +136,14 @@ Views: iso top bottom front back right left. `--no-axes`, `--no-grid`, `--len <m
 - Y axis / pen carriage: 20x20 V-slot with a mini V gantry, or OpenRail? Pen holder and pen lift (probably a servo) are not designed.
 - Parts added 2026-11-13: mini V wheel plate, V-slot gantry plate 20 mm, 20x20x500 rail, delrin / mini / xtreme V wheels, mini V actuators, NEMA17 belt-driven actuator, and the OpenBuilds SCRIBE pen lifter (3 printed STL parts, type "other", at print origin; Printables, CC BY-NC-ND 4.0: do not redistribute). The Scribe mounts on the OpenBuilds router mount, which is not in the library.
 - Still missing: servo for the pen lift, router mount (or an adapter to the mini V wheel plate).
+- SCRIBE facts: it bolts on the OpenBuilds router mount or an ACRO carriage, not on a rail. Footprint 64 x 90 mm (matches the lift base STL). Pens 8-12 mm. Machines without Z use a servo (our case). Its linear guide is 9 mm x 40 mm long (user, from https://makerworld.com/fr/models/1148964-openbuilds-scribe-pen-lifter); not modelled yet. The A1 ACRO Draw Bot is OpenBuilds' plotter built around it.
 - Design references: refs_design.md.
 - To check later: sag of the cantilevered beam.
 
 ## Next steps
 
-1. Add the `touch` option to mounts/mates. Use it to replace the hand-computed `end_a_at: -21.65`.
-2. Y axis: a carriage running on the beam (mini V gantry + wheels), a second joint `y`, a pen holder.
-3. Belts (parametric GT2), motor mount screws, collision check.
-4. Later: SEND button + queue file; Mistral benchmark.
+1. Y axis: a carriage on the 20x20 beam (mini V wheel plate + delrin mini V wheels, already in the library), a second joint `y`.
+2. Pen lift: SCRIBE on the carriage (an adapter or router mount), plus a servo and the 9x40 mm linear guide.
+3. `touch` option for mounts/mates (1D: along the slide axis only), only if "until it touches" requests keep coming up. It would replace the hand-computed `end_a_at: -21.65`.
+4. Belts (parametric GT2), motor mount screws, collision check.
+5. Later: SEND button + queue file; Mistral benchmark. STEP models have no structure tree.

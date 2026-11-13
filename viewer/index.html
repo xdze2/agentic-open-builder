@@ -47,13 +47,28 @@
     #partbar b { margin-right: 2px; } #pb-lens { display: flex; flex-wrap: wrap; gap: 4px; }
     #pb-custom { width: 110px; }
 
-    /* zoom overlay + scale bar (3D view) */
-    #zoomctl { position: absolute; right: 10px; top: 10px; z-index: 3; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
-    .zbox { display: flex; gap: 2px; background: #fffe; border: 1px solid var(--sl-color-neutral-300); border-radius: 8px; padding: 2px; box-shadow: 0 2px 8px #0002; }
-    #zoomctl .views { flex-direction: column; }
+    /* toolbar overlay (3D view, top-right): zoom, views, View dropdown */
+    #zoomctl { position: absolute; right: 10px; top: 10px; z-index: 3; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0 1px; max-width: calc(100% - 20px); }
+    .zbox { background: #fffe; border: 1px solid var(--sl-color-neutral-300); border-radius: 8px; padding: 1px 3px; box-shadow: 0 2px 8px #0002; }
+    #zoomctl sl-icon-button { font-size: 16px; } #zoomctl sl-button::part(base) { padding: 0 6px; }
+    .zsep { width: 1px; align-self: stretch; margin: 5px 3px; background: var(--sl-color-neutral-300); }
+    #view-menu { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; background: #fff; border: 1px solid var(--sl-color-neutral-300); border-radius: 8px; box-shadow: 0 4px 18px #0003; padding: 10px 12px; width: 230px; }
     #scalebar { position: absolute; left: 12px; top: 10px; z-index: 2; pointer-events: none; font-size: 11px; color: #334; display: flex; flex-direction: column; gap: 2px; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+    @media (max-width: 900px) { #scalebar { top: 56px; } }
     #sb-line { height: 7px; border: 2px solid #334; border-top: none; box-sizing: border-box; }
-    .vrow { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+    /* structure tree */
+    #tree-head { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; } #tree-head sl-input { flex: 1 1 100%; }
+    #tree-wrap { max-height: 42vh; overflow: auto; margin: 0 -4px; }
+    #b-tree { --indent-size: 12px; }
+    #b-tree sl-tree-item::part(label) { flex: 1; min-width: 0; }
+    #b-tree sl-tree-item::part(item--selected) { background: var(--sl-color-primary-100); border-inline-start-color: var(--sl-color-primary-600); }
+    .tn { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+    .tn .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+    .tn .dt { color: var(--sl-color-neutral-500); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 0; min-width: 0; }
+    .tn .sw { width: 10px; height: 10px; border-radius: 3px; flex: none; border: 1px solid #0003; }
+    .tn .ta { margin-left: auto; display: flex; flex: none; }
+    .tn .ta sl-icon-button { font-size: 14px; } .tn .ta sl-icon-button::part(base) { padding: 2px 3px; }
+    sl-tree-item.off > .tn { opacity: .4; } sl-tree-item.part-off > .tn .ta [data-act="eye"] { color: var(--sl-color-warning-600); }
 
     /* panel */
     #panel sl-details { margin-bottom: 8px; }
@@ -61,11 +76,11 @@
     #info { line-height: 1.5; word-break: break-word; }
     #info table { border-collapse: collapse; } #info td { padding: 0 6px 0 0; font-size: 12px; vertical-align: top; }
     .copy { background: var(--sl-color-neutral-100); border: 1px solid var(--sl-color-neutral-200); padding: 1px 5px; border-radius: 3px; cursor: pointer; user-select: all; display: block; margin: 2px 0; font-family: var(--sl-font-mono, monospace); font-size: 12px; color: #7a4a00; }
-    #b-err { position: absolute; left: 8px; right: 64px; top: 44px; z-index: 3; color: #a1122a; background: #fdecef; border: 1px solid #f3a6b3; border-radius: 6px; padding: 6px 10px; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+    #b-err { position: absolute; left: 8px; right: 8px; top: 56px; z-index: 3; color: #a1122a; background: #fdecef; border: 1px solid #f3a6b3; border-radius: 6px; padding: 6px 10px; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
     #b-err:empty { display: none; }
     .j { margin: 2px 0 10px; }
     #b-mounts { font-size: 12px; line-height: 1.4; word-break: break-word; }
-    #hint { font-size: 11px; color: var(--sl-color-neutral-500); margin-top: 6px; }
+    #hint { align-self: stretch; font-size: 11px; color: var(--sl-color-neutral-500); margin-top: 6px; }
     #b-bom table { border-collapse: collapse; font-size: 13px; } #b-bom td { padding: 2px 10px 2px 0; vertical-align: top; } #b-bom td:first-child { white-space: nowrap; }
     #bom-dlg::part(panel) { width: min(640px, 96vw); }
     #tip { position: fixed; pointer-events: none; background: #1d2430e6; color: #fff; padding: 3px 7px; border-radius: 3px; font-size: 12px; z-index: 5; }
@@ -95,7 +110,7 @@
     #pr-status { font-size: 12px; }
 
     /* snap mode: canvas only */
-    html.snap #browser, html.snap #panel, html.snap #bar, html.snap #partbar, html.snap #zoomctl, html.snap #scalebar, html.snap #pr-dock, html.snap #b-err, html.snap #tip { display: none !important; }
+    html.snap #browser, html.snap #panel, html.snap #view-menu, html.snap #bar, html.snap #partbar, html.snap #zoomctl, html.snap #scalebar, html.snap #pr-dock, html.snap #b-err, html.snap #tip { display: none !important; }
     html.snap body, html.snap #app { background: #f3f5f8; }
   </style>
 </head>
@@ -136,9 +151,27 @@
       <div id="stage">
         <div id="canvas"></div>
         <div id="scalebar"><div id="sb-line"></div><span id="sb-text"></span></div>
-        <div id="zoomctl">
-          <div class="zbox"><sl-icon-button name="zoom-in" label="Zoom in" data-zoom="in"></sl-icon-button><sl-icon-button name="zoom-out" label="Zoom out" data-zoom="out"></sl-icon-button><sl-icon-button name="bounding-box" label="Fit (frame the item)" data-zoom="fit"></sl-icon-button></div>
-          <div class="zbox views"><sl-button size="small" variant="text" data-view="iso">Iso</sl-button><sl-button size="small" variant="text" data-view="top">Top</sl-button><sl-button size="small" variant="text" data-view="front">Front</sl-button><sl-button size="small" variant="text" data-view="right">Right</sl-button></div>
+        <div id="zoomctl" class="zbox">
+          <sl-icon-button name="zoom-in" label="Zoom in" title="Zoom in" data-zoom="in"></sl-icon-button>
+          <sl-icon-button name="zoom-out" label="Zoom out" title="Zoom out" data-zoom="out"></sl-icon-button>
+          <sl-icon-button name="bounding-box" label="Fit" title="Fit (frame the item)" data-zoom="fit"></sl-icon-button>
+          <span class="zsep"></span>
+          <sl-button size="small" variant="text" data-view="iso" title="Isometric view">Iso</sl-button><sl-button size="small" variant="text" data-view="top" title="Top view">Top</sl-button><sl-button size="small" variant="text" data-view="front" title="Front view">Front</sl-button><sl-button size="small" variant="text" data-view="right" title="Right view">Right</sl-button>
+          <span class="zsep"></span>
+          <sl-dropdown id="dd-view" placement="bottom-end" distance="8" stay-open-on-select hoist>
+            <sl-button slot="trigger" size="small" variant="text" caret title="Display options"><sl-icon slot="prefix" name="sliders"></sl-icon>View</sl-button>
+            <div id="view-menu">
+              <sl-checkbox id="t-world" checked>World axes</sl-checkbox>
+              <sl-checkbox id="t-part" checked>Selected part axes</sl-checkbox>
+              <sl-checkbox id="t-grid" checked>Grid</sl-checkbox>
+              <sl-checkbox id="t-shadows" checked>Shadows</sl-checkbox>
+              <sl-checkbox id="t-edges" checked>Edge lines</sl-checkbox>
+              <sl-checkbox id="b-ports" checked data-mode="build">Clicked port marker</sl-checkbox>
+              <sl-checkbox id="t-ports" checked data-mode="part">Port frames</sl-checkbox>
+              <sl-checkbox id="t-labels" checked data-mode="part">Port labels</sl-checkbox>
+              <div id="hint"></div>
+            </div>
+          </sl-dropdown>
         </div>
         <div id="b-err"></div>
         <div id="pr-dock" hidden>
@@ -155,24 +188,17 @@
     </main>
 
     <aside id="panel" class="side" data-side><div id="panel-body">
+      <sl-details id="d-struct" summary="Structure" open data-mode="build">
+        <div id="tree-head">
+          <sl-input id="tree-q" size="small" placeholder="Filter" clearable><sl-icon slot="prefix" name="search"></sl-icon></sl-input>
+          <sl-button id="tree-iso" size="small" title="Show only the selected instance"><sl-icon slot="prefix" name="bullseye"></sl-icon>Isolate</sl-button>
+          <sl-button id="tree-all" size="small" title="Show every instance"><sl-icon slot="prefix" name="eye"></sl-icon>Show all</sl-button>
+        </div>
+        <div id="tree-wrap"><sl-tree id="b-tree" selection="leaf"></sl-tree></div>
+      </sl-details>
       <sl-details id="d-sel" summary="Selection" open><div id="info">Click a part.</div></sl-details>
       <sl-details id="d-joints" summary="Joints" open data-mode="build"><div id="b-sliders"></div></sl-details>
       <sl-details id="d-mounts" summary="Mounts" data-mode="build"><div id="b-mounts"></div></sl-details>
-      <sl-details id="d-ports" summary="Ports" open data-mode="part">
-        <sl-checkbox id="t-ports" checked>Port frames</sl-checkbox><br>
-        <sl-checkbox id="t-labels" checked>Port labels</sl-checkbox>
-      </sl-details>
-      <sl-details id="d-disp" summary="Display" open>
-        <sl-checkbox id="t-world" checked>World axes</sl-checkbox><br>
-        <sl-checkbox id="t-part" checked>Selected part axes</sl-checkbox><br>
-        <sl-checkbox id="t-grid" checked>Grid</sl-checkbox><br>
-        <sl-checkbox id="t-shadows" checked>Shadows</sl-checkbox><br>
-        <sl-checkbox id="t-edges" checked>Edge lines</sl-checkbox><br>
-        <sl-checkbox id="b-ports" checked data-mode="build">Show clicked port marker</sl-checkbox>
-        <div class="vrow" style="margin-top:8px"><sl-button size="small" data-zoom="in"><sl-icon slot="prefix" name="zoom-in"></sl-icon>Zoom in</sl-button><sl-button size="small" data-zoom="out"><sl-icon slot="prefix" name="zoom-out"></sl-icon>Zoom out</sl-button><sl-button size="small" data-zoom="fit"><sl-icon slot="prefix" name="bounding-box"></sl-icon>Fit</sl-button></div>
-        <div class="vrow"><sl-button size="small" data-view="iso">Iso</sl-button><sl-button size="small" data-view="top">Top</sl-button><sl-button size="small" data-view="front">Front</sl-button><sl-button size="small" data-view="right">Right</sl-button></div>
-        <div id="hint"></div>
-      </sl-details>
     </div></aside>
   </div>
 

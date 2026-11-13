@@ -14,6 +14,9 @@ import '@shoelace-style/shoelace/dist/components/dialog/dialog.js';
 import '@shoelace-style/shoelace/dist/components/drawer/drawer.js';
 import '@shoelace-style/shoelace/dist/components/range/range.js';
 import '@shoelace-style/shoelace/dist/components/checkbox/checkbox.js';
+import '@shoelace-style/shoelace/dist/components/tree/tree.js';
+import '@shoelace-style/shoelace/dist/components/tree-item/tree-item.js';
+import '@shoelace-style/shoelace/dist/components/dropdown/dropdown.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import modelNames from 'virtual:models';
@@ -161,7 +164,7 @@ function enter(m) {
 }
 async function openBuild(file) {
   enter('build'); ++seq;
-  build ||= createBuild({ $, scene, camera, renderer, controls, stage, fitScene, frame, colorOfType, ndc, onOpen: (f) => setCurrent('asm', f, f) });
+  build ||= createBuild({ $, scene, camera, renderer, controls, stage, fitScene, frame, colorOfType, ndc, afterTreePick: () => { if (mq.matches) $('dr-panel').hide(); }, onOpen: (f) => setCurrent('asm', f, f) });
   await build.enter(file);
 }
 
@@ -331,8 +334,16 @@ on('t-part', (v) => (partAxes.visible = v && !!selected));
 on('t-grid', (v) => stage.setGrid(v));
 on('t-shadows', (v) => stage.setShadows(v));
 on('t-edges', (v) => stage.setEdges(v));
+// the toggles are remembered (not in snap mode, which sets them itself)
+const VKEY = 'ob_view_v1', VIEW_IDS = ['t-world', 't-part', 't-grid', 't-shadows', 't-edges', 'b-ports', 't-ports', 't-labels'];
+const viewState = (() => { try { return JSON.parse(localStorage.getItem(VKEY)) || {}; } catch (e) { return {}; } })();
+if (!SNAP) for (const id of VIEW_IDS) {
+  const el = $(id);
+  if (typeof viewState[id] === 'boolean') { el.checked = viewState[id]; el.dispatchEvent(new CustomEvent('sl-change')); }
+  el.addEventListener('sl-change', () => { viewState[id] = el.checked; try { localStorage.setItem(VKEY, JSON.stringify(viewState)); } catch (e) { /* private mode */ } });
+}
 
-// zoom / fit / view presets: overlay in the 3D view and a mirror in the Display section
+// zoom / fit / view presets: toolbar overlay in the 3D view
 document.addEventListener('click', (e) => {
   const z = e.target.closest?.('[data-zoom]'), v = e.target.closest?.('[data-view]');
   if (z) { const a = z.dataset.zoom; if (a === 'in') stage.zoomBy(1.4); else if (a === 'out') stage.zoomBy(1 / 1.4); else if (a === 'fit') { const b = curBox(); if (b) stage.fit(b); } }

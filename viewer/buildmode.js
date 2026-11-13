@@ -47,7 +47,10 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
       $('b-err').textContent = 'ERROR: ' + e.message; if (!(e instanceof AsmError)) console.error(e); return;
     }
     const names = res.instances.map((i) => i.name).join('|');
+    let reselect = null;
     if (rebuild.names !== names || !meshes.size) {
+      reselect = selected?.userData.name || null; // keep the selection where the name still exists
+      snapshotTree();
       for (const m of [...group.children]) group.remove(m);
       meshes = new Map();
       for (const inst of res.instances) {
@@ -56,10 +59,13 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
         group.add(mesh); meshes.set(inst.name, mesh);
       }
       rebuild.names = names; selected = null;
+      for (const n of [...hidden]) if (!meshes.has(n)) hidden.delete(n);
+      buildTree(); applyVisibility();
     }
     for (const inst of res.instances) { const m = meshes.get(inst.name); m.matrix.copy(toMatrix(inst.M)); m.matrixWorldNeedsUpdate = true; }
     group.updateMatrixWorld(true);
     renderPanel(); hover(null); prompt.refresh();
+    if (reselect && meshes.has(reselect)) show({ object: meshes.get(reselect), point: centerOf(res.instances.find((i) => i.name === reselect)) }, true);
     const box = new THREE.Box3().setFromObject(group); fitScene(box);
     if (!keepCamera || framed !== file) { frame(box); framed = file; }
   }
@@ -129,8 +135,8 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
   }
   function show(hit, silent) {
     if (selected) selected.material = matFor(res.instances.find((i) => i.name === selected.userData.name).def.type);
-    if (!hit) { selected = null; marker.visible = false; edgeLine.visible = false; $('info').textContent = 'Click a part.'; return; }
-    selected = hit.object; selected.material = highlight;
+    if (!hit) { selected = null; marker.visible = false; edgeLine.visible = false; $('info').textContent = 'Click a part.'; treeSelect(null); return; }
+    selected = hit.object; selected.material = highlight; treeSelect(selected.userData.name);
     const d = describeHit(hit), copy = (s) => `<div class="copy" title="click to copy">${s}</div>`;
     $('info').innerHTML = `<b>${d.name}</b><br>part: ${d.def.slug}<br>size: ${dimsText(d.def.dims)}<br>type: ${d.def.type}${d.def.profile ? ` (${d.def.profile}${d.def.length ? `, parametric, cut ${d.def.length} mm` : ' library mesh'})` : ''}<br>` +
       `hit (part frame): ${d.p.map(f2).join(', ')} mm<br>` +
@@ -183,6 +189,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
     if (r.edge) { hoverLine.geometry.setFromPoints(r.edge.map((q) => new THREE.Vector3(...q))); hoverLine.visible = true; }
     else if (r.point) { hoverMarker.position.set(...r.point); hoverMarker.scale.setScalar(2.2); hoverMarker.visible = true; }
   }
+  const centerOf = (inst) => { const { min, max } = inst.def.bbox || { min: [0, 0, 0], max: [0, 0, 0] }; return new THREE.Vector3(...m4.point(inst.M, [0, 1, 2].map((k) => (min[k] + max[k]) / 2))); };
   const flyTo = (box) => stage.flyTo(box, 40);
   function focus(ref) {
     const r = resolveRef(ref); if (!r) return;
@@ -191,8 +198,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
     else if (r.point) box.expandByPoint(new THREE.Vector3(...r.point));
     else box.setFromObject(r.mesh);
     if (r.point) box.expandByScalar(15);
-    let pt = r.point ? new THREE.Vector3(...r.point) : box.getCenter(new THREE.Vector3());
-    if (!r.point) { const { min, max } = r.inst.def.bbox || { min: [0, 0, 0], max: [0, 0, 0] }; pt = new THREE.Vector3(...m4.point(r.inst.M, [0, 1, 2].map((k) => (min[k] + max[k]) / 2))); }
+    const pt = r.point ? new THREE.Vector3(...r.point) : centerOf(r.inst);
     hover(null);
     show({ object: r.mesh, point: pt }, true);
     window.__viewer.lastFocus = ref;
@@ -200,7 +206,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
   }
   const prompt = createPrompt({ $, getResult: () => res, getFile: () => file, hooks: { resolve: resolveRef, hover, focus } });
   const ray = new THREE.Raycaster();
-  const hitAt = (cx, cy) => { ray.setFromCamera(ndc(cx, cy), camera); return ray.intersectObjects(group.children, false)[0]; };
+  const hitAt = (cx, cy) => { ray.setFromCamera(ndc(cx, cy), camera); return ray.intersectObjects(group.children.filter((m) => m.visible), false)[0]; }; // hidden pieces are not pickable
   addEventListener('pointermove', (e) => {
     const tip = $('tip');
     if (!active || e.target !== renderer.domElement || !res) { tip.hidden = true; return; }
@@ -208,6 +214,108 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
     if (!h) { tip.hidden = true; return; }
     tip.hidden = false; tip.textContent = h.object.userData.name; tip.style.left = e.clientX + 12 + 'px'; tip.style.top = e.clientY + 12 + 'px';
   });
+
+  // ---- Structure tree: root assembly > sub-assemblies > instances (generated fasteners in a collapsed group) ----
+  const hidden = new Set();          // hidden instance names (kept across live reloads where the name still exists)
+  const expState = new Map();        // tree key -> expanded
+  const items = new Map(), groupNames = new Map(); // key -> sl-tree-item ; group key -> instance names below it
+  const treeEl = $('b-tree'), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  let syncing = false, hoverKey = null;
+  const hex = (t) => '#' + new THREE.Color(colorOfType(t)).getHexString();
+  const detailOf = (d) => (d.profile ? `${d.profile} V-slot, ${+(d.length ?? d.dims[2]).toFixed(1)} mm` : d.slug);
+  const ACT = (act, icon, tip) => `<sl-icon-button name="${icon}" data-act="${act}" label="${tip}" title="${tip}"></sl-icon-button>`;
+  function snapshotTree() { if (treeEl.dataset.filtering) return; for (const [k, it] of items) if (it.dataset.group) expState.set(k, it.expanded); }
+  function buildTree() {
+    items.clear(); groupNames.clear();
+    const mountNames = new Set(res.mounts.map((m) => m.name));
+    const root = { key: 'g:root', label: file.replace(/\.json$/, ''), kids: [], root: true }, fast = { key: 'g:fasteners', label: 'Fasteners', kids: [], dflt: false, note: 'generated screws and tee nuts' };
+    const groups = new Map([['', root]]);
+    const groupAt = (path) => { // path of segments
+      const k = path.join('/'); if (groups.has(k)) return groups.get(k);
+      const parent = groupAt(path.slice(0, -1)), g = { key: 'g:' + k, label: path[path.length - 1], kids: [] };
+      groups.set(k, g); parent.kids.push(g); return g;
+    };
+    for (const inst of res.instances) {
+      const seg = inst.name.split('/'), dir = seg.slice(0, -1).join('/');
+      (mountNames.has(dir) ? fast : groupAt(seg.slice(0, -1))).kids.push({ key: inst.name, inst, label: seg[seg.length - 1] });
+    }
+    if (fast.kids.length) root.kids.push(fast);
+    const names = (n) => (n.inst ? [n.key] : n.kids.flatMap(names));
+    const html = (n) => {
+      if (n.inst) {
+        const d = n.inst.def;
+        return `<sl-tree-item data-key="${esc(n.key)}" data-leaf="1"><span class="tn"><i class="sw" style="background:${hex(d.type)}"></i><span class="nm">${esc(n.label)}</span><span class="dt">${esc(detailOf(d))}</span><span class="ta">${ACT('ins', 'plus-square', 'Insert in prompt')}${ACT('eye', 'eye', 'Hide / show (shift-click: isolate)')}</span></span></sl-tree-item>`;
+      }
+      groupNames.set(n.key, names(n));
+      const open = expState.has(n.key) ? expState.get(n.key) : n.dflt !== false;
+      return `<sl-tree-item data-key="${n.key}" data-group="1" ${open ? 'expanded' : ''}><span class="tn"><sl-icon name="${n.root ? 'diagram-3' : 'box'}"></sl-icon><span class="nm">${esc(n.label)}</span><span class="dt">${n.note ? esc(n.note) + ', ' : ''}${groupNames.get(n.key).length}</span><span class="ta">${ACT('eye', 'eye', 'Hide / show this group (shift-click: isolate)')}</span></span>${n.kids.map(html).join('')}</sl-tree-item>`;
+    };
+    syncing = true;
+    treeEl.innerHTML = html(root);
+    for (const it of treeEl.querySelectorAll('sl-tree-item')) items.set(it.dataset.key, it);
+    syncing = false;
+    filterTree();
+  }
+  function applyVisibility() {
+    for (const [n, m] of meshes) m.visible = !hidden.has(n);
+    stage.refreshShadows();
+    for (const [k, it] of items) {
+      const ns = it.dataset.leaf ? [k] : groupNames.get(k) || [], off = ns.length > 0 && ns.every((n) => hidden.has(n));
+      const some = ns.some((n) => hidden.has(n)), b = it.querySelector(':scope > .tn [data-act="eye"]');
+      it.classList.toggle('off', off); it.classList.toggle('part-off', !off && some);
+      if (b) b.name = off ? 'eye-slash' : 'eye';
+    }
+  }
+  const namesOf = (key) => (key.startsWith('g:') ? groupNames.get(key) || [] : [key]);
+  function setHidden(key, hide) { for (const n of namesOf(key)) hide ? hidden.add(n) : hidden.delete(n); applyVisibility(); }
+  function isolate(key) { hidden.clear(); const keep = new Set(namesOf(key)); for (const n of meshes.keys()) if (!keep.has(n)) hidden.add(n); applyVisibility(); }
+  function treeSelect(name) {
+    const it = name ? items.get(name) : null;
+    syncing = true;
+    for (const x of treeEl.querySelectorAll('sl-tree-item[selected]')) if (x !== it) x.selected = false;
+    if (it) {
+      if (it.hidden) { $('tree-q').value = ''; filterTree(); }
+      for (let p = it.parentElement; p && p.tagName === 'SL-TREE-ITEM'; p = p.parentElement) p.expanded = true;
+      it.selected = true;
+      requestAnimationFrame(() => it.scrollIntoView({ block: 'nearest' }));
+    }
+    setTimeout(() => (syncing = false), 0);
+  }
+  function filterTree() {
+    const q = $('tree-q').value.trim().toLowerCase();
+    if (q && !treeEl.dataset.filtering) { snapshotTree(); treeEl.dataset.filtering = '1'; }
+    const lastFiltering = !!q;
+    const vis = (it) => { // returns true when it (or a descendant) matches
+      const kids = [...it.querySelectorAll(':scope > sl-tree-item')];
+      const self = !q || (it.dataset.key + ' ' + it.textContent).toLowerCase().includes(q);
+      const any = kids.map(vis).some(Boolean);
+      it.hidden = !(self || any);
+      if (it.dataset.group && q) it.expanded = any;
+      return self || any;
+    };
+    syncing = true;
+    treeEl.querySelectorAll(':scope > sl-tree-item').forEach(vis);
+    if (!lastFiltering && treeEl.dataset.filtering) { delete treeEl.dataset.filtering; for (const [k, it] of items) if (it.dataset.group && expState.has(k)) it.expanded = expState.get(k); }
+    setTimeout(() => (syncing = false), 0);
+  }
+  $('tree-q').addEventListener('sl-input', filterTree);
+  const selName = () => selected?.userData.name || null;
+  $('tree-iso').addEventListener('click', () => { const n = selName(); if (n) isolate(n); });
+  $('tree-all').addEventListener('click', () => { hidden.clear(); applyVisibility(); });
+  const keyOf = (e) => e.target.closest?.('sl-tree-item')?.dataset.key;
+  treeEl.addEventListener('click', (e) => { // item action buttons (capture: the tree must not treat them as a row click)
+    const b = e.target.closest?.('[data-act]'); if (!b) return;
+    e.stopPropagation();
+    const key = keyOf(e), n = namesOf(key);
+    if (b.dataset.act === 'eye') { if (e.shiftKey) isolate(key); else setHidden(key, !n.every((x) => hidden.has(x))); }
+    else if (b.dataset.act === 'ins') { const inst = res.instances.find((i) => i.name === key); if (inst) { prompt.insertChip({ ref: key, label: short(key) }); ctx.afterTreePick?.(); } }
+  }, true);
+  treeEl.addEventListener('sl-selection-change', (e) => {
+    const it = e.detail.selection[0]; if (syncing || !it?.dataset.leaf || it.dataset.key === selName()) return;
+    focus(it.dataset.key); ctx.afterTreePick?.(); // same code path as a chip click: select, info, camera fly
+  });
+  treeEl.addEventListener('mouseover', (e) => { const k = e.target.closest?.('sl-tree-item[data-leaf]')?.dataset.key || null; if (k !== hoverKey) { hoverKey = k; hover(k); } });
+  treeEl.addEventListener('mouseleave', () => { hoverKey = null; hover(null); });
 
   let active = false;
   async function enter(initialFile) {
@@ -218,6 +326,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
   function leave() { hover(null); active = false; $('pr-dock').hidden = true; scene.remove(group, marker, edgeLine, hoverMarker, hoverLine); $('tip').hidden = true; }
   async function open(f) {
     file = f; overrides = {}; renderPanel.sig = null; rebuild.names = null; framed = null;
+    selected = null; hidden.clear(); expState.clear(); marker.visible = edgeLine.visible = false; $('info').textContent = 'Click a part.';
     asm = await loader.assembly(f).catch((e) => { $('b-err').textContent = 'ERROR: ' + e.message; return null; });
     if (!asm) return;
     await rebuild(false);

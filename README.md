@@ -27,8 +27,8 @@ Other commands:
 ## Viewer
 
 - **Left:** a browser with Parts, Assemblies and STEP models tabs, with search, thumbnails and collapsible groups.
-- **Centre:** an orthographic 3D view with shadows, zoom/fit/view buttons and a scale bar.
-- **Right:** selection info with copy-ready references, joint sliders, mounts and display options.
+- **Centre:** an orthographic 3D view with shadows and a scale bar. A toolbar at the top right holds zoom/fit, Iso/Top/Front/Right and a **View** dropdown (axes, grid, shadows, edge lines, port markers; remembered in localStorage).
+- **Right:** the assembly and part info. **Structure** tree (assembly > sub-assemblies > instances, with hide/isolate, filter and insert-in-prompt; synced with 3D clicks and hover), selection info with copy-ready references, joint sliders and mounts.
 - **Bottom:** a prompt box. Click parts, faces, edges or holes in 3D to insert them as chips, then copy the prompt into Claude Code.
 
 | Plotter (snapshot tool) | Bill of materials |
