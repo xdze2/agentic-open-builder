@@ -6,6 +6,37 @@ Assemblies are JSON files (`user_data/assemblies/*.json`) edited by an AI agent 
 
 ![Viewer with the plotter assembly](docs/screenshots/viewer-plotter.png)
 
+## How it fits together
+
+```mermaid
+flowchart LR
+    user(["User"])
+
+    subgraph front["Front: browser"]
+        viewer["3D viewer<br/>parts browser, structure, joints"]
+        prompt["Prompt editor<br/>chips, screenshots, drawings"]
+    end
+
+    subgraph back["Backend: Node"]
+        dev["Vite dev server<br/>/api/shot, /api/prompt"]
+        tools["tools/<br/>solve.mjs, snap.mjs"]
+        data[("user_data/<br/>assemblies JSON, library, prompts")]
+    end
+
+    agent["Claude Code agent"]
+
+    user -- "looks, clicks parts" --> viewer
+    viewer -- "inserts picked parts" --> prompt
+    prompt -- "Send" --> dev
+    dev -- "writes prompt.md + PNGs" --> data
+    user -- "pastes Read …/prompt.md" --> agent
+    agent -- "reads prompt, edits assembly JSON" --> data
+    agent -- "runs solver, snapshots" --> tools
+    tools -- "reads" --> data
+    data -- "live reload" --> dev
+    dev -- "serves models + assemblies" --> viewer
+```
+
 ## Quick start
 
 ```sh
@@ -23,6 +54,7 @@ Other commands:
 | `npm run library` | `user_data/models/` → deduplicated library parts with ports in `user_data/library/` |
 | `npm run thumbs` | thumbnails for parts, assemblies and models (`--force` to redo all) |
 | `npm run build` | static viewer in `viewer/dist` |
+| `node tools/readme_shots.mjs` | retake the viewer screenshots in `docs/screenshots/` by driving the UI |
 
 ## Private data: `user_data/`
 
@@ -58,7 +90,10 @@ A fresh clone has an empty viewer: put the CAD files in `user_data/parts/`, then
 ## Agent loop
 
 1. In the viewer, type a request and click the pieces it refers to.
-2. Optionally add screenshots of the view (camera button under the box).
+2. Optionally add screenshots of the view (camera button under the box). The view freezes so you can draw on it: pins, arrows, boxes, freehand and text, each numbered so the prompt can refer to it.
+
+   ![Drawing on the frozen view before capturing it](docs/screenshots/viewer-sketch.png)
+
 3. Press **Send**: the prompt and screenshots are saved to `user_data/prompts/<date>/` and a `Read …/prompt.md` line is copied. Paste it into Claude Code. (**Copy text** copies the prompt as plain text without screenshots, and works without the dev server.)
 4. The agent edits the assembly JSON, checks it with `tools/solve.mjs` and looks at `tools/snap.mjs` snapshots.
 5. The viewer reloads live.
