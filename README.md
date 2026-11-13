@@ -6,6 +6,30 @@ Assemblies are JSON files (`user_data/assemblies/*.json`) edited by an AI agent 
 
 ![Viewer with the plotter assembly](docs/screenshots/viewer-plotter.png)
 
+## Example
+
+A real prompt: *Add a belt tensioner in* «box 1» *, using* «Idler Pulley Plate» *plate*. The view is frozen, a box is drawn at the free end of the beam and its badge clicked to put «box 1» in the prompt; the plate comes from the **+** on its library card:
+
+![The viewer while drawing: box 1 at the free end of the beam, and the prompt with its two chips](docs/screenshots/example-prompt.png)
+
+**Send** writes `user_data/prompts/2026-11-13_102625/` with `1.png`, `prompt.json` and this `prompt.md`, which the agent reads:
+
+```text
+[plotter viewer] assembly: user_data/assemblies/plotter.json   state: {"x":250,"y":250}
+Request: Add a belt tensioner in «box 1» , using «Idler Pulley Plate» plate
+References:
+- «box 1» = img:mwerujqniphg#1  mark 1 on image 1 (red box, described under Screenshots)
+- «Idler Pulley Plate» = lib:idler-pulley-plate  library part idler-pulley-plate (user_data/library/idler-pulley-plate/part.json), type plate, 67 × 39.5 × 3 mm
+(lib:<slug> = a library part, used in the assembly JSON as {"part": "<slug>"}; lib:vslot-<profile> = a parametric V-Slot rail)
+Screenshots (open each one with the Read tool; orthographic views, so the scale is the same everywhere in an image):
+- user_data/prompts/2026-11-13_102625/1.png — 1029×886 px, assembly: user_data/assemblies/plotter.json; looking from iso [0.57, -0.68, 0.46] at [250.0, -187.3, 24.0] mm (image centre), 0.794 mm per px
+  Marks drawn on it (3D points in mm, world frame):
+    1. red box around «beam»; centre on «beam» at [241.8, -478.4, 35]; image px (211, 501)–(333, 611)
+Read docs/VOCABULARY.md, edit the assembly JSON, run `node tools/solve.mjs <file>` to check it.
+```
+
+The chips become named references, and the drawn box is turned into 3D points (it is around `beam`, centre at [241.8, -478.4, 35] mm), so the agent knows where to work without guessing from pixels.
+
 ## How it fits together
 
 ![User, front (viewer and prompt editor), backend (dev server, tools, user_data) and the Claude Code agent](docs/architecture.svg)
@@ -67,30 +91,6 @@ A fresh clone has an empty viewer: put the CAD files in `user_data/parts/`, then
 3. Press **Send**: the prompt and screenshots are saved to `user_data/prompts/<date>/` and a `Read …/prompt.md` line is copied. Paste it into Claude Code. (**Copy text** copies the prompt as plain text without screenshots, and works without the dev server.)
 4. The agent edits the assembly JSON, checks it with `tools/solve.mjs` and looks at `tools/snap.mjs` snapshots.
 5. The viewer reloads live.
-
-### Example
-
-A real prompt: *Add a belt tensioner in* «box 1» *, using* «Idler Pulley Plate» *plate*. The view is frozen, a box is drawn at the free end of the beam and its badge clicked to put «box 1» in the prompt; the plate comes from the **+** on its library card:
-
-![The viewer while drawing: box 1 at the free end of the beam, and the prompt with its two chips](docs/screenshots/example-prompt.png)
-
-**Send** writes `user_data/prompts/2026-11-13_102625/` with `1.png`, `prompt.json` and this `prompt.md`, which the agent reads:
-
-```text
-[plotter viewer] assembly: user_data/assemblies/plotter.json   state: {"x":250,"y":250}
-Request: Add a belt tensioner in «box 1» , using «Idler Pulley Plate» plate
-References:
-- «box 1» = img:mwerujqniphg#1  mark 1 on image 1 (red box, described under Screenshots)
-- «Idler Pulley Plate» = lib:idler-pulley-plate  library part idler-pulley-plate (user_data/library/idler-pulley-plate/part.json), type plate, 67 × 39.5 × 3 mm
-(lib:<slug> = a library part, used in the assembly JSON as {"part": "<slug>"}; lib:vslot-<profile> = a parametric V-Slot rail)
-Screenshots (open each one with the Read tool; orthographic views, so the scale is the same everywhere in an image):
-- user_data/prompts/2026-11-13_102625/1.png — 1029×886 px, assembly: user_data/assemblies/plotter.json; looking from iso [0.57, -0.68, 0.46] at [250.0, -187.3, 24.0] mm (image centre), 0.794 mm per px
-  Marks drawn on it (3D points in mm, world frame):
-    1. red box around «beam»; centre on «beam» at [241.8, -478.4, 35]; image px (211, 501)–(333, 611)
-Read docs/VOCABULARY.md, edit the assembly JSON, run `node tools/solve.mjs <file>` to check it.
-```
-
-The chips become named references, and the drawn box is turned into 3D points (it is around `beam`, centre at [241.8, -478.4, 35] mm), so the agent knows where to work without guessing from pixels.
 
 ## Sources and licenses
 
