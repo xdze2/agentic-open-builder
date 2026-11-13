@@ -70,9 +70,9 @@ A fresh clone has an empty viewer: put the CAD files in `user_data/parts/`, then
 
 ### Example
 
-A real prompt: a box drawn on a screenshot of the plotter, plus a library part picked with **+**. In the viewer it reads *Add a belt tensioner in* «box 1» *, using* «Idler Pulley Plate» *plate*. The screenshot sent with it:
+A real prompt: *Add a belt tensioner in* «box 1» *, using* «Idler Pulley Plate» *plate*. The view is frozen, a box is drawn at the free end of the beam and its badge clicked to put «box 1» in the prompt; the plate comes from the **+** on its library card:
 
-![Screenshot with a red box drawn at the free end of the beam](docs/screenshots/example-prompt.png)
+![The viewer while drawing: box 1 at the free end of the beam, and the prompt with its two chips](docs/screenshots/example-prompt.png)
 
 **Send** writes `user_data/prompts/2026-11-13_102625/` with `1.png`, `prompt.json` and this `prompt.md`, which the agent reads:
 

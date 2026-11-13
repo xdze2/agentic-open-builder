@@ -92,7 +92,42 @@ try {
   await shoot('viewer-bom.png');
   await page.click('#bom-close'); await wait(500);
 
-  // 3. parametric rail
+  // 3. the README example prompt (a real one, user_data/prompts/2026-11-13_102625): a box drawn on the frozen view + a library part
+  await page.click('#pr-clear'); await wait(300);
+  await page.reload({ waitUntil: 'load' }); await page.waitForFunction(() => window.__viewer?.build?.result, { timeout: 60000 }); await wait(2500); // nothing selected
+  await page.evaluate(() => { // the camera of that capture, a bit less zoomed (the 3D view is smaller here)
+    const { camera, controls } = window.__viewer, d = camera.position.distanceTo(controls.target), dir = [0.57, -0.684, 0.456];
+    controls.target.set(250, -187.35, 24);
+    camera.position.copy(controls.target).add(controls.target.clone().set(...dir).multiplyScalar(d));
+    camera.zoom = 0.95; camera.updateProjectionMatrix(); camera.lookAt(controls.target); controls.update();
+  });
+  await wait(800);
+  await page.click('#pr-box');
+  await type('Add a belt tensioner in , using ');
+  await page.click('#plist .card[data-id="idler-pulley-plate"] .ins'); await wait(300);
+  await type(' plate');
+  await page.evaluate(() => { // caret after "in " for the box chip
+    const t = document.querySelector('#pr-box').firstChild, r = document.createRange();
+    r.setStart(t, 'Add a belt tensioner in '.length); r.collapse(true);
+    const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+  });
+  await wait(200);
+  const end = await page.evaluate(() => { // the free end of the beam, where the box goes
+    const v = window.__viewer, c = v.controls.target.clone().set(241.8, -478.4, 35).project(v.camera), r = document.querySelector('#canvas canvas').getBoundingClientRect();
+    return { x: r.left + (c.x + 1) / 2 * r.width, y: r.top + (1 - c.y) / 2 * r.height };
+  });
+  await page.click('#pr-shot');
+  await page.waitForSelector('.bar button[data-tool="box"]', { visible: true }); await wait(500);
+  await page.click('.bar button[data-tool="box"]');
+  await page.mouse.move(end.x - 55, end.y - 50); await page.mouse.down(); await page.mouse.move(end.x + 55, end.y + 50, { steps: 10 }); await page.mouse.up(); await wait(300);
+  await page.click('.bar button[data-tool="select"]'); await page.mouse.click(W - 450, 200); await wait(200); // deselect: its corner handle covers the badge
+  await page.mouse.click(end.x - 55, end.y - 50); await wait(300); // number badge (top-left corner): inserts «box 1» at the caret
+  await page.mouse.click(W - 450, 200); await page.mouse.move(W - 450, 160);
+  await shoot('example-prompt.png');
+  await page.click('.bar button[data-act="cancel"]'); await wait(500);
+  await page.click('#pr-clear'); await wait(300);
+
+  // 4. parametric rail
   await open('parts/vslot-20x60');
   await page.click('[data-view="iso"]'); await wait(800);
   await page.click('[data-zoom="out"]'); await wait(800);
