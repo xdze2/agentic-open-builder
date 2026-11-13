@@ -7,7 +7,7 @@ import * as m4 from '../lib/mat.js';
 import { railGeometry } from './vslot.js';
 import { slotsOf, FACES } from '../lib/vslot_ports.js';
 import { edgePorts } from '../lib/assembly.js';
-import { createPrompt, short, portWords } from './prompt.js';
+import { short, portWords } from './prompt.js';
 
 export function createBuild(ctx) {
   const { $, scene, camera, renderer, controls, stage, fitScene, frame, colorOfType, ndc } = ctx;
@@ -204,7 +204,7 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
     window.__viewer.lastFocus = ref;
     flyTo(box);
   }
-  const prompt = createPrompt({ $, getResult: () => res, getFile: () => file, hooks: { resolve: resolveRef, hover, focus } });
+  const prompt = ctx.prompt; // shared with the other views (main.js); its hooks call back into resolveRef / hover / focus below
   const ray = new THREE.Raycaster();
   const hitAt = (cx, cy) => { ray.setFromCamera(ndc(cx, cy), camera); return ray.intersectObjects(group.children.filter((m) => m.visible), false)[0]; }; // hidden pieces are not pickable
   addEventListener('pointermove', (e) => {
@@ -320,10 +320,10 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
   let active = false;
   async function enter(initialFile) {
     active = true;
-    scene.add(group, marker, edgeLine, hoverMarker, hoverLine); $('pr-dock').hidden = false;
+    scene.add(group, marker, edgeLine, hoverMarker, hoverLine);
     await open(initialFile || file || 'plotter.json');
   }
-  function leave() { hover(null); active = false; $('pr-dock').hidden = true; scene.remove(group, marker, edgeLine, hoverMarker, hoverLine); $('tip').hidden = true; }
+  function leave() { hover(null); active = false; scene.remove(group, marker, edgeLine, hoverMarker, hoverLine); $('tip').hidden = true; }
   async function open(f) {
     file = f; overrides = {}; renderPanel.sig = null; rebuild.names = null; framed = null;
     selected = null; hidden.clear(); expState.clear(); marker.visible = edgeLine.visible = false; $('info').textContent = 'Click a part.';
@@ -343,5 +343,5 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
   };
   if (import.meta.hot) import.meta.hot.on('assemblies-changed', (d) => { reload().catch(console.error); });
 
-  return { prompt, group, bomText: () => `Bill of materials: ${file} (${res?.instances.length} instances)\n` + bomLines.join('\n'), enter, leave, hitAt, show, isActive: () => active, setState: (s) => { Object.assign(overrides, s); return rebuild(true); }, get result() { return res; } };
+  return { resolveRef: (ref) => (active ? resolveRef(ref) : undefined), hover, focus, state: () => res?.state, file: () => file, group, bomText: () => `Bill of materials: ${file} (${res?.instances.length} instances)\n` + bomLines.join('\n'), enter, leave, hitAt, show, isActive: () => active, setState: (s) => { Object.assign(overrides, s); return rebuild(true); }, get result() { return res; } };
 }

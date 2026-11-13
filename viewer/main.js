@@ -22,6 +22,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import modelNames from 'virtual:models';
 import { PROFILES, railGeometry, vslotPart } from './vslot.js';
 import { createBuild } from './buildmode.js';
+import { createPrompt, portWords } from './prompt.js';
 import { createStage, VIEWS, GRID_MINOR, GRID_MAJOR } from './stage.js';
 
 setBasePath('./shoelace'); // icons: <base>/shoelace/assets/icons (served / copied by vite.config.js)
@@ -63,7 +64,8 @@ const dimsText = (d) => d.map(f1).join(' × ') + ' mm';
 const LIB_COLOR = { rail: 'rail', plate: 'plate', tee_nut: 'fastener', wheel: 'wheel', motor: 'motor', pulley: 'pulley',
   screw: 'fastener', nut: 'fastener', spacer: 'fastener', bearing: 'fastener', shim: 'fastener', block: 'plate' };
 const colorOfType = (t) => (TYPES.find(([n]) => n === (LIB_COLOR[t] || 'other')) || TYPES[TYPES.length - 1])[2];
-let mode = null, libIndex = null, partGroup = null, curPart = null, seq = 0; // mode: 'part' | 'build' | 'model'
+let mode = null, libIndex = null, partGroup = null, curPart = null, curSlug = null, seq = 0; // mode: 'part' | 'build' | 'model'
+const partDefs = new Map(); // slug -> part json seen in the part view (port details for lib: chips)
 
 function label(text, size) {
   const c = document.createElement('canvas'); c.width = 256; c.height = 64;
@@ -97,6 +99,8 @@ function showPart(part, geometry, gltfScene) {
   if (gltfScene) { obj = gltfScene; const ms = []; obj.traverse((o) => { if (o.isMesh) { o.material = mat; ms.push(o); } }); ms.forEach((o) => stage.decorate(o)); }
   else { obj = new THREE.Mesh(geometry, mat); stage.decorate(obj); }
   partGroup.add(obj);
+  partGroup.userData.mesh = obj;
+  partDefs.set(curSlug, part);
   const box = partBox = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3());
   const unit = Math.max(4, Math.min(size.x, size.y, 80, Math.max(...part.dims) / 3));
@@ -127,6 +131,7 @@ async function loadPart(slug) {
   const base = `library/${slug}/`;
   const [gltf, part] = await Promise.all([new GLTFLoader().loadAsync(base + 'part.glb'), fetch(base + 'part.json').then((r) => r.json())]);
   if (my !== seq) return;
+  curSlug = slug;
   showPart(part, null, gltf.scene);
   setCurrent('part', slug, part.name);
 }
@@ -139,6 +144,7 @@ async function loadParametric(profile, len) {
   $('partbar').hidden = false; $('pb-profile').textContent = `V-Slot ${profile}`;
   const geo = await railGeometry(profile, railLen);
   if (my !== seq) return;
+  curSlug = 'vslot-' + profile;
   showPart(vslotPart(profile, railLen), geo, null);
   setCurrent('part', 'vslot-' + profile, `V-Slot ${profile} x ${railLen} mm (parametric)`);
   syncLengthBar();
@@ -155,6 +161,7 @@ function enter(m) {
   if (m !== 'model' && model) { scene.remove(model); model = null; }
   if (m !== 'part' && partGroup) { scene.remove(partGroup); partGroup = null; }
   mode = m; parts = []; select(null);
+  if (m !== 'part') curSlug = null;
   document.querySelectorAll('[data-mode]').forEach((e) => (e.hidden = e.dataset.mode !== m));
   $('bt-bom').hidden = m !== 'build';
   $('partbar').hidden = true;
@@ -164,8 +171,9 @@ function enter(m) {
 }
 async function openBuild(file) {
   enter('build'); ++seq;
-  build ||= createBuild({ $, scene, camera, renderer, controls, stage, fitScene, frame, colorOfType, ndc, afterTreePick: () => { if (mq.matches) $('dr-panel').hide(); }, onOpen: (f) => setCurrent('asm', f, f) });
+  build ||= createBuild({ $, prompt, scene, camera, renderer, controls, stage, fitScene, frame, colorOfType, ndc, afterTreePick: () => { if (mq.matches) $('dr-panel').hide(); }, onOpen: (f) => setCurrent('asm', f, f) });
   await build.enter(file);
+  prompt.refresh();
 }
 
 const key = (s) => s.replace(/[^A-Za-z0-9_]/g, ''); // GLTFLoader sanitises node names
@@ -227,13 +235,73 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   if (mode === 'build') { build.show(build.hitAt(e.clientX, e.clientY)); return; }
   const ray = new THREE.Raycaster();
   ray.setFromCamera(ndc(e.clientX, e.clientY), camera);
+  if (mode === 'part') { if (partGroup && curPart) { const h = ray.intersectObject(partGroup.userData.mesh, true)[0]; if (h) prompt.pick(partSel(h.point)); } return; }
   const hit = ray.intersectObjects(parts, false)[0];
   select(hit ? hit.object : null);
 });
 
+// ---- prompt (global: every view). Library parts are chips too: lib:<slug> or lib:<slug>.<port> ----
+const libPart = (slug) => libIndex?.parts.find((p) => p.slug === slug);
+const isProfile = (slug) => slug.startsWith('vslot-') && PROFILES[slug.slice(6)];
+const libName = (slug) => (isProfile(slug) ? `V-Slot ${slug.slice(6)}` : libPart(slug)?.name || slug);
+const libType = (slug) => (isProfile(slug) ? 'rail' : libPart(slug)?.type);
+const splitLib = (ref) => { const r = ref.slice(4), dot = r.indexOf('.'); return dot < 0 ? [r, null] : [r.slice(0, dot), r.slice(dot + 1)]; };
+const hexOf = (c) => '#' + new THREE.Color(c).getHexString();
+/** selection for a click on the part shown in the part view: the nearest port when the click is close to one, else the part */
+function partSel(pt) {
+  const slug = curSlug, name = libName(slug), p = [pt.x, pt.y, pt.z];
+  const size = partBox ? partBox.getSize(new THREE.Vector3()) : new THREE.Vector3(1, 1, 1);
+  let best = null;
+  for (const q of curPart.ports) { const d = Math.hypot(...q.origin.map((c, k) => c - p[k])); if (!best || d < best.d) best = { d, q }; }
+  const near = best && best.d < Math.max(3, 0.08 * Math.max(size.x, size.y, size.z));
+  return near ? { ref: `lib:${slug}.${best.q.name}`, label: `${name} › ${portWords(best.q.name)}` } : { ref: 'lib:' + slug, label: name };
+}
+const prompt = createPrompt({
+  $,
+  getResult: () => (mode === 'build' ? build?.result : null),
+  getContext: () => {
+    if (mode === 'build' && build) return `assembly: assemblies/${build.file()}   state: ${JSON.stringify(build.state() || {})}`;
+    if (mode === 'part' && curSlug) return isProfile(curSlug) ? `viewing parametric rail V-Slot ${curSlug.slice(6)} (${railLen} mm)` : `viewing library part: library/${curSlug}/part.json`;
+    if (mode === 'model' && current) return `viewing STEP model: models/${current.id}`;
+    return 'no item open';
+  },
+  hooks: {
+    resolve: (ref) => {
+      if (!ref.startsWith('lib:')) return build ? build.resolveRef(ref) : undefined;
+      if (!libIndex) return undefined;
+      const [slug] = splitLib(ref);
+      return isProfile(slug) || libPart(slug) ? { color: hexOf(colorOfType(libType(slug))) } : null;
+    },
+    hover: (ref) => build?.hover(ref && !ref.startsWith('lib:') ? ref : null),
+    focus: (ref) => {
+      if (!ref.startsWith('lib:')) return build?.focus(ref);
+      const [slug] = splitLib(ref);
+      if (curSlug !== slug) openItem('part', slug).catch(console.error);
+    },
+    describe: (ref) => {
+      if (!ref.startsWith('lib:')) return undefined;
+      const [slug, port] = splitLib(ref);
+      if (isProfile(slug)) return `parametric V-Slot ${slug.slice(6)} rail (any length)${port ? `, port ${port}` : ''}`;
+      const lp = libPart(slug);
+      if (!lp) return '(not in the library)';
+      let s = `library part ${slug} (library/${slug}/part.json), type ${lp.type}, ${dimsText(lp.dims)}`;
+      const q = port && partDefs.get(slug)?.ports.find((x) => x.name === port);
+      if (q) s += `; port ${port} at ${JSON.stringify(q.origin.map(f1))}, normal ${JSON.stringify(q.z.map(f1))} (part frame)`;
+      else if (port) s += `; port ${port}`;
+      return s;
+    },
+    library: () => [
+      ...Object.keys(PROFILES).map((k) => ({ ref: 'lib:vslot-' + k, label: `V-Slot ${k}`, show: 'lib:vslot-' + k })),
+      ...(libIndex?.parts || []).filter((p) => !isStepRail(p)).map((p) => ({ ref: 'lib:' + p.slug, label: p.name, show: 'lib:' + p.slug })),
+    ],
+  },
+});
+if (SNAP) $('pr-dock').hidden = true;
+
 // ---- browser (left): collapsible groups of cards with thumbnails ----
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const card = (kind, id, name, sub, thumb, type = '') => `<div class="card" data-kind="${kind}" data-id="${esc(id)}" data-q="${esc((name + ' ' + type).toLowerCase())}">` +
+  (kind === 'part' ? `<button type="button" class="ins" data-keep-prompt title="Insert in the prompt (without opening it)">+</button>` : '') +
   `<div class="th"><img src="${thumb}" loading="lazy" alt=""></div><div class="nm">${esc(name)}</div><div class="sz">${esc(sub)}</div></div>`;
 document.addEventListener('error', (e) => { // missing thumbnail -> placeholder
   const t = e.target; if (t.tagName === 'IMG' && t.closest('.card')) t.parentElement.innerHTML = '<sl-icon name="box"></sl-icon>';
@@ -256,8 +324,11 @@ function bindList(listId, searchId, onPick) {
   const toggle = (g) => { gState[g.dataset.gk] = gState[g.dataset.gk] === false; saveG(); applyGroups(listId, $(searchId).value.trim().toLowerCase()); };
   $(listId).addEventListener('click', (e) => {
     const h = e.target.closest('[data-grp]'); if (h) return toggle(h.parentElement);
+    const ins = e.target.closest('.ins');
+    if (ins) { const id = ins.parentElement.dataset.id; return prompt.insertChip({ ref: 'lib:' + id, label: libName(id) }); }
     const c = e.target.closest('.card'); if (c) onPick(c.dataset.kind, c.dataset.id);
   });
+  $(listId).addEventListener('mousedown', (e) => { if (e.target.closest('.ins')) e.preventDefault(); }); // keep the caret in the prompt
   $(listId).addEventListener('keydown', (e) => { const h = e.target.closest?.('[data-grp]'); if (h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(h.parentElement); } });
   $(searchId).addEventListener('sl-input', (e) => applyGroups(listId, e.target.value.trim().toLowerCase()));
 }
@@ -275,6 +346,7 @@ async function initLists() {
   }
   $('mlist').innerHTML = modelNames.length ? group('models', 'converted STEP models', modelNames.map((n) => card('model', n, n.replace(/_/g, ' '), 'STEP', `models/${n}/thumb.png`))) : 'No models found in models/.';
   applyGroups('plist'); applyGroups('mlist');
+  prompt.refresh();
   await listAssemblies();
 }
 async function listAssemblies() {
@@ -379,7 +451,7 @@ async function snapLoad(t, view = 'iso', o = {}) {
   return window.__snapError;
 }
 
-window.__viewer = { setClip: (z) => { renderer.localClippingEnabled = false; renderer.clippingPlanes = z === null ? [] : [new THREE.Plane(new THREE.Vector3(0, 0, -1), -z)]; }, get build() { return build; }, get prompt() { return build?.prompt; }, stage, camera, controls, load, loadPart, loadParametric, openItem, get parts() { return parts; }, select };
+window.__viewer = { setClip: (z) => { renderer.localClippingEnabled = false; renderer.clippingPlanes = z === null ? [] : [new THREE.Plane(new THREE.Vector3(0, 0, -1), -z)]; }, get build() { return build; }, prompt, stage, camera, controls, load, loadPart, loadParametric, openItem, get parts() { return parts; }, select };
 window.__snapLoad = snapLoad;
 
 // ---- start ----

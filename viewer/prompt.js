@@ -1,20 +1,22 @@
-// Prompt box for the Build tab: free text + clickable chips that carry exact references into the assembly JSON.
+// Prompt box, global to every view (part, assembly, STEP model): free text + clickable chips that carry exact references into the assembly JSON.
 // The viewer never edits geometry: this box only composes a request that is copied to the clipboard and pasted into Claude Code.
 //
 // Chip = <span class="chip" contenteditable="false" data-ref="actuator/plate.edge_+y" data-label="plate › edge +y">.
-// A "selection" is {ref, label}. ref = "<instance>" or "<instance>.<port>" (exactly what goes into the JSON).
+// A "selection" is {ref, label}. ref = "<instance>" or "<instance>.<port>" (exactly what goes into the JSON),
+// or "lib:<slug>" / "lib:<slug>.<port>" for a library part (a piece to choose, not an instance yet).
 import * as m4 from '../lib/mat.js';
 import { findPort, edgePorts } from '../lib/assembly.js';
 
-const KEY = 'ob_prompt_draft_v1', RECENT_N = 5;
+const KEY = 'ob_prompt_draft_v1', POS_KEY = 'ob_prompt_pos_v1', RECENT_N = 5;
 const f1 = (v) => +(+v).toFixed(1);
 const vec = (v) => '[' + v.map(f1).join(', ') + ']';
 const WORDS = [[[1, 0, 0], 'right'], [[-1, 0, 0], 'left'], [[0, 1, 0], 'back'], [[0, -1, 0], 'front'], [[0, 0, 1], 'up'], [[0, 0, -1], 'down']];
 const dirWord = (v) => { const w = WORDS.find(([d]) => d.every((c, k) => Math.abs(c - v[k]) < 0.01)); return w ? ` (${w[1]})` : ''; };
 
-const ICONS = { part: '\u25FC', face: '\u25B1', edge: '\u2571', hole: '\u25CB', port: '\u2295' };
+const ICONS = { lib: '\u29C9', libport: '\u2295', part: '\u25FC', face: '\u25B1', edge: '\u2571', hole: '\u25CB', port: '\u2295' };
 /** kind of a ref from its text alone (the hole / face distinction is by naming convention, see findPort). */
 export function kindOf(ref) {
+  if (ref.startsWith('lib:')) return ref.includes('.', 4) ? 'libport' : 'lib';
   const dot = ref.indexOf('.');
   if (dot < 0) return 'part';
   const p = ref.slice(dot + 1);
@@ -24,8 +26,10 @@ export function kindOf(ref) {
   return 'port';
 }
 
-// hooks (all optional): resolve(ref) -> {color} | null (null = ref no longer exists), hover(ref|null), focus(ref)
-export function createPrompt({ $, getResult, getFile, hooks = {} }) {
+// hooks (all optional): resolve(ref) -> {color} | null (null = ref no longer exists), hover(ref|null), focus(ref),
+//   describe(ref) -> string | undefined (details for refs the assembly does not know, e.g. lib:), library() -> [{ref, label, show}]
+// getContext() -> first line of the copied prompt (what is on screen)
+export function createPrompt({ $, getResult, getContext, hooks = {} }) {
   const box = $('pr-box'), recentEl = $('pr-recent'), pop = $('pr-pop'), status = $('pr-status');
   let saved = null;      // last caret range inside the box (the 3D click would otherwise lose it)
   let armed = false;     // the box was the last thing focused: a 3D click inserts a chip
@@ -45,6 +49,7 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
   addEventListener('pointerdown', (e) => {
     // clicks on the canvas or on the prompt widgets keep the box armed; anything else in the panel disarms it
     if (e.target === $('canvas').firstChild || e.target.closest?.('#pr-dock') || e.target.closest?.('#canvas')) return;
+    if (e.target.closest?.('[data-keep-prompt]')) return; // e.g. the "+" on a library card
     if (e.target.closest?.('.side,[data-side]')) armed = false;
   }, true);
   function restore() {
@@ -90,7 +95,7 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
     r.deleteContents();
     const c = chipEl(sel), sp = document.createTextNode(' ');
     r.insertNode(sp); r.insertNode(c);          // order: chip, space
-    const nr = document.createRange(); nr.setStartAfter(sp); nr.collapse(true);
+    const nr = document.createRange(); nr.setStart(sp, 1); nr.collapse(true); // inside the text node: at box level Chrome types before the space
     const s = getSelection(); s.removeAllRanges(); s.addRange(nr); saved = nr.cloneRange();
     changed();
   }
@@ -122,7 +127,7 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
     const text = (t) => { const last = out[out.length - 1]; if (last && last.t === 'text') last.v += t; else out.push({ t: 'text', v: t }); };
     const walk = (n, top) => {
       for (const c of n.childNodes) {
-        if (c.nodeType === 3) text(c.nodeValue.replace(/ /g, ' '));
+        if (c.nodeType === 3) text(c.nodeValue.replace(/\u00A0/g, ' ').replace(/\u200B/g, ''));
         else if (c.nodeType === 1) {
           if (c.classList.contains('chip')) out.push({ t: 'chip', ref: c.dataset.ref, label: c.dataset.label });
           else if (c.tagName === 'BR') text('\n');
@@ -140,12 +145,27 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
       if (t.t === 'chip') box.appendChild(chipEl(t));
       else t.v.split('\n').forEach((line, i) => { if (i) box.appendChild(document.createElement('br')); if (line) box.appendChild(document.createTextNode(line)); });
     }
+    anchors();
   }
   /** Re-tint chips and mark stale ones (called after every solve). */
   function refresh() {
     for (const c of document.querySelectorAll('#pr-box .chip, #pr-recent .chip')) decorate(c, c.dataset);
   }
+  /** A non-editable chip with no text before it (first in the box, after another chip or a line break) leaves no caret
+   *  position in front of it: keep a zero-width space there (dropped by tokens()), and drop the ones no longer needed. */
+  const ZW = '\u200B';
+  function anchors() {
+    const caret = getSelection().rangeCount ? getSelection().anchorNode : null;
+    for (const n of [...box.childNodes]) {
+      if (n.nodeType === 3 && n.nodeValue === ZW && n !== caret && !n.nextSibling?.classList?.contains('chip')) n.remove();
+    }
+    for (const c of box.querySelectorAll(':scope > .chip')) {
+      const p = c.previousSibling;
+      if (!p || p.nodeType !== 3 || p.nodeValue === '') box.insertBefore(document.createTextNode(ZW), c);
+    }
+  }
   function changed() {
+    anchors();
     hooks.hover?.(null); // a hovered chip may just have been deleted: no mouseleave then
     try { localStorage.setItem(KEY, JSON.stringify({ toks: tokens(), recent })); } catch (e) { /* storage may be blocked */ }
   }
@@ -158,6 +178,8 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
   // ---- reference details for the copied block ----
   function instOf(path) { return getResult()?.instances.find((i) => i.name === path); }
   function describeRef(ref) {
+    const ext = hooks.describe?.(ref);
+    if (ext !== undefined) return ext;
     const res = getResult();
     if (!res) return '';
     const dot = ref.indexOf('.'), path = dot < 0 ? ref : ref.slice(0, dot), inst = instOf(path);
@@ -174,13 +196,13 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
     } catch (e) { return `${d.slug}  (${e.message.slice(0, 80)})`; }
   }
   function buildText() {
-    const toks = tokens(), res = getResult();
-    const state = res ? JSON.stringify(res.state) : '{}';
+    const toks = tokens();
     const req = toks.map((t) => (t.t === 'chip' ? `«${t.label}»` : t.v)).join('').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
     const seen = new Set(), refs = [];
     for (const t of toks) if (t.t === 'chip' && !seen.has(t.label + '|' + t.ref)) { seen.add(t.label + '|' + t.ref); refs.push(`- «${t.label}» = ${t.ref}  ${describeRef(t.ref)}`); }
-    return [`[plotter viewer] assembly: assemblies/${getFile()}   state: ${state}`, `Request: ${req}`,
+    return [`[plotter viewer] ${getContext()}`, `Request: ${req}`,
       ...(refs.length ? ['References:', ...refs] : []),
+      ...(toks.some((t) => t.t === 'chip' && t.ref.startsWith('lib:')) ? ['(lib:<slug> = a library part, used in the assembly JSON as {"part": "<slug>"}; lib:vslot-<profile> = a parametric V-Slot rail)'] : []),
       'Read VOCABULARY.md, edit the assembly JSON, run `node tools/solve.mjs <file>` to check it.'].join('\n');
   }
 
@@ -206,8 +228,13 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
 
   // ---- @ completion ----
   const closePop = () => { comp = null; pop.hidden = true; };
+  function libCandidates(q) {
+    const f = q.toLowerCase().replace(/^lib:/, '');
+    return (hooks.library?.() || []).filter((it) => it.show.toLowerCase().includes(f) || it.label.toLowerCase().includes(f)).slice(0, 12);
+  }
   function candidates(q) {
-    const res = getResult(); if (!res) return [];
+    const res = getResult();
+    if (!res || q.startsWith('lib:')) return libCandidates(q);
     const dot = q.indexOf('.');
     if (dot >= 0) { // instance chosen: list its ports
       const inst = instOf(q.slice(0, dot)); if (!inst) return [];
@@ -216,7 +243,8 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
       return names.filter((n) => n.toLowerCase().includes(f)).slice(0, 12).map((n) => ({ ref: `${inst.name}.${n}`, label: `${short(inst.name)} › ${portWords(n)}`, show: `${inst.name}.${n}` }));
     }
     const f = q.toLowerCase();
-    return res.instances.filter((i) => i.name.toLowerCase().includes(f)).slice(0, 12).map((i) => ({ ref: i.name, label: short(i.name), show: i.name, more: true }));
+    const inst = res.instances.filter((i) => i.name.toLowerCase().includes(f)).slice(0, 12).map((i) => ({ ref: i.name, label: short(i.name), show: i.name, more: true }));
+    return [...inst, ...libCandidates(q)].slice(0, 16);
   }
   function atQuery() {
     const s = getSelection(); if (!s.rangeCount || !inBox(s.anchorNode) || s.anchorNode.nodeType !== 3) return null;
@@ -253,6 +281,34 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
   box.addEventListener('blur', () => setTimeout(closePop, 100));
   // pasting: plain text only
   box.addEventListener('paste', (e) => { e.preventDefault(); document.execCommand('insertText', false, e.clipboardData.getData('text/plain')); });
+
+  // ---- drag: the dock moves by its grip (it may hide a menu); position kept in % of the stage, double-click resets ----
+  const dock = $('pr-dock'), grip = $('pr-grip'), host = dock.parentElement;
+  let pos = null; // {x, y}: fractions of the free space (0 = left / top, 1 = right / bottom)
+  try { pos = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch (e) { /* ignore */ }
+  function place() {
+    if (!pos) { dock.style.left = dock.style.top = ''; dock.classList.remove('moved'); return; }
+    const W = host.clientWidth - dock.offsetWidth, H = host.clientHeight - dock.offsetHeight;
+    dock.classList.add('moved');
+    dock.style.left = Math.max(0, W * pos.x) + 'px'; dock.style.top = Math.max(0, H * pos.y) + 'px';
+  }
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); grip.setPointerCapture(e.pointerId);
+    const hr = host.getBoundingClientRect(), dr = dock.getBoundingClientRect(), dx = e.clientX - dr.left, dy = e.clientY - dr.top;
+    const move = (ev) => {
+      const W = Math.max(1, hr.width - dr.width), H = Math.max(1, hr.height - dr.height);
+      const x = Math.min(W, Math.max(0, ev.clientX - hr.left - dx)), y = Math.min(H, Math.max(0, ev.clientY - hr.top - dy));
+      pos = { x: x / W, y: y / H }; place();
+    };
+    const up = () => {
+      grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up);
+      try { localStorage.setItem(POS_KEY, JSON.stringify(pos)); } catch (e) { /* ignore */ }
+    };
+    grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up);
+  });
+  grip.addEventListener('dblclick', () => { pos = null; place(); try { localStorage.removeItem(POS_KEY); } catch (e) { /* ignore */ } });
+  const ro = new ResizeObserver(place); ro.observe(host); ro.observe(dock);
+  place();
 
   return { pick, refresh, copy, buildText, tokens, insertChip, get armed() { return armed; } };
 }

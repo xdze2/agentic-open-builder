@@ -86,10 +86,19 @@
     #tip { position: fixed; pointer-events: none; background: #1d2430e6; color: #fff; padding: 3px 7px; border-radius: 3px; font-size: 12px; z-index: 5; }
     #tip[hidden] { display: none; }
 
-    /* prompt box (bottom of the 3D view) */
+    /* prompt box (bottom-left of the 3D view in every mode; draggable by its grip) */
     #pr-dock { position: absolute; left: 12px; bottom: 12px; width: min(680px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 6px; z-index: 4; pointer-events: none; }
     #pr-dock > * { pointer-events: auto; }
     #pr-dock[hidden] { display: none; }
+    #pr-dock.moved { bottom: auto; }
+    #pr-grip { align-self: stretch; display: flex; align-items: center; padding: 0 1px; margin: -2px 0 -2px -2px; color: var(--sl-color-neutral-400); cursor: grab; touch-action: none; border-radius: 6px; font-size: 14px; }
+    #pr-grip:hover { color: var(--sl-color-neutral-700); background: var(--sl-color-neutral-100); }
+    #pr-grip:active { cursor: grabbing; }
+    .card { position: relative; }
+    .card .ins { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; padding: 0; border: 1px solid var(--sl-color-neutral-300); border-radius: 50%; background: #fff; color: var(--sl-color-primary-600); font: 700 15px/1 var(--sl-font-sans, sans-serif); cursor: pointer; opacity: 0; transition: opacity .12s; }
+    .card:hover .ins, .card .ins:focus-visible { opacity: 1; }
+    @media (hover: none) { .card .ins { opacity: 1; } }
+    .card .ins:hover { background: var(--sl-color-primary-600); color: #fff; }
     #pr-recent { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; color: var(--sl-color-neutral-600); align-self: flex-start; max-width: 100%; direction: ltr; }
     #pr-recent > i { background: #fffd; padding: 2px 8px; border-radius: 10px; }
     #pr-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; background: #fff; border: 1px solid var(--sl-color-neutral-300); border-radius: 10px; padding: 6px; box-shadow: 0 4px 18px #0002; }
@@ -174,11 +183,12 @@
           </sl-dropdown>
         </div>
         <div id="b-err"></div>
-        <div id="pr-dock" hidden>
+        <div id="pr-dock">
           <div id="pr-recent"></div>
           <div id="pr-row">
+            <div id="pr-grip" title="Drag to move (double-click: back to the corner)"><sl-icon name="grip-vertical"></sl-icon></div>
             <div id="pr-wrap">
-              <div id="pr-box" contenteditable="true" spellcheck="false" data-placeholder="Ask for a change. Click things in 3D to insert them, or type @ to pick an instance."></div>
+              <div id="pr-box" contenteditable="true" spellcheck="false" data-placeholder="Ask for a change. Click things in 3D (or + on a library part) to insert them, or type @ to pick an instance or a part."></div>
               <div id="pr-pop" hidden></div>
             </div>
             <div id="pr-btns"><sl-button id="pr-copy" size="small" variant="primary">Copy prompt</sl-button><sl-button id="pr-clear" size="small">Clear</sl-button><span id="pr-status"></span></div>
