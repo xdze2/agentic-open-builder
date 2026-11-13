@@ -2,3 +2,5 @@ parts/
 models/
 node_modules/
 viewer/dist
+snaps/
+models/*/thumb.png

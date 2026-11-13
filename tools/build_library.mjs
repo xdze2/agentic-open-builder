@@ -165,6 +165,12 @@ for (const s of solids) {
 }
 
 // ---------------- write ----------------
+// keep the rendered thumbnails (tools/snap.mjs --thumbs) across a rebuild
+const keep = new Map();
+if (fs.existsSync(OUT)) for (const d of fs.readdirSync(OUT, { withFileTypes: true })) {
+  if (d.name === '_thumbs') for (const f of fs.readdirSync(path.join(OUT, d.name))) keep.set(`_thumbs/${f}`, fs.readFileSync(path.join(OUT, d.name, f)));
+  else if (d.isDirectory() && fs.existsSync(path.join(OUT, d.name, 'thumb.png'))) keep.set(`${d.name}/thumb.png`, fs.readFileSync(path.join(OUT, d.name, 'thumb.png')));
+}
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 const nameCount = {};
@@ -397,4 +403,10 @@ fs.writeFileSync(path.join(OUT, 'index.json'), JSON.stringify(index, null, 1));
 const types = {}; parts.forEach(({ part }) => (types[part.type] = (types[part.type] || 0) + 1));
 console.log(`\n${solids.length} solids -> ${parts.length} unique parts ${JSON.stringify(types)}; skipped ${skipped.length} belts`);
 for (const p of index.parts) console.log(`  ${p.type.padEnd(8)} ${p.slug.padEnd(48)} ${p.dims.map((v) => v.toFixed(2)).join(' x ').padEnd(26)} x${p.instances}`);
+// restore thumbnails for slugs that still exist (thumbs of removed slugs are dropped)
+for (const [f, buf] of keep) {
+  if (f.startsWith('_thumbs/')) fs.mkdirSync(path.join(OUT, '_thumbs'), { recursive: true });
+  if (fs.existsSync(path.dirname(path.join(OUT, f)))) fs.writeFileSync(path.join(OUT, f), buf);
+}
 if (validation.some((v) => !v.ok)) { console.error('VALIDATION FAILED'); process.exit(1); }
+

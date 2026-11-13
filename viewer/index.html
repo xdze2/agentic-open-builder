@@ -1,102 +1,189 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="sl-theme-light">
 <head>
   <meta charset="utf-8">
   <title>OpenBuilds viewer</title>
+  <link rel="icon" href="data:,">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    html, body { margin: 0; height: 100%; font: 13px system-ui, sans-serif; background: #1b1d22; color: #ddd; overflow: hidden; }
-    #canvas { position: fixed; inset: 0; }
-    #panel { position: fixed; top: 0; right: 0; bottom: 0; width: 280px; box-sizing: border-box; padding: 12px; background: #23262dee; overflow: auto; }
-    #panel h3 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; color: #8a93a3; }
-    #panel h3:first-child { margin-top: 0; }
-    select { width: 100%; padding: 4px; }
-    label { display: block; margin: 3px 0; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #f3f5f8; color: var(--sl-color-neutral-800, #222); font: 13px var(--sl-font-sans, system-ui, sans-serif); }
+    #app { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; height: 100%; }
+    .side { width: 320px; box-sizing: border-box; overflow: auto; background: #fff; }
+    #browser { border-right: 1px solid var(--sl-color-neutral-200); width: 330px; }
+    #panel { border-left: 1px solid var(--sl-color-neutral-200); }
+    #panel-body { padding: 10px; }
+    [hidden] { display: none !important; }
+    #app.nobrowser #browser, #app.nopanel #panel, #app.narrow .side { display: none; }
+    #browser { grid-column: 1; } #center { grid-column: 2; } #panel { grid-column: 3; }
+    #center { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    #bar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: #fff; border-bottom: 1px solid var(--sl-color-neutral-200); }
+    #title { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #stage { position: relative; flex: 1; min-height: 0; }
+    #canvas { position: absolute; inset: 0; }
+    #canvas canvas { display: block; }
+    .drawer-body { padding: 0; }
+
+    /* browser */
+    #tabs::part(base) { height: 100%; }
+    sl-tab-panel::part(base) { padding: 10px; }
+    .list { margin-top: 8px; }
+    .grp { margin: 12px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--sl-color-neutral-500); }
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+    .card { border: 1px solid var(--sl-color-neutral-200); border-radius: 6px; background: #fff; cursor: pointer; overflow: hidden; display: flex; flex-direction: column; }
+    .card:hover { border-color: var(--sl-color-primary-400); box-shadow: 0 1px 6px #0002; }
+    .card.on { border-color: var(--sl-color-primary-600); outline: 2px solid var(--sl-color-primary-300); }
+    .card .th { aspect-ratio: 1; background: #f3f5f8; display: flex; align-items: center; justify-content: center; color: var(--sl-color-neutral-400); font-size: 28px; }
+    .card .th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .card .nm { padding: 3px 6px 0; font-size: 11px; line-height: 1.25; font-weight: 600; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card .sz { padding: 0 6px 4px; font-size: 10px; color: var(--sl-color-neutral-500); }
+    .gbox { margin-top: 6px; }
+    .grp { display: flex; align-items: center; gap: 6px; margin: 8px 0 6px; padding: 3px 4px; border-radius: 4px; cursor: pointer; user-select: none; }
+    .grp:hover, .grp:focus-visible { background: var(--sl-color-neutral-100); outline: none; }
+    .grp .chev { width: 10px; font-size: 12px; }
+    .grp .gn { margin-left: auto; font-size: 10px; background: var(--sl-color-neutral-100); border-radius: 8px; padding: 0 6px; letter-spacing: 0; }
+
+    /* rail length bar (parametric profiles) */
+    #partbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 5px 8px; background: #fff; border-bottom: 1px solid var(--sl-color-neutral-200); }
+    #partbar b { margin-right: 2px; } #pb-lens { display: flex; flex-wrap: wrap; gap: 4px; }
+    #pb-custom { width: 110px; }
+
+    /* zoom overlay + scale bar (3D view) */
+    #zoomctl { position: absolute; right: 10px; top: 10px; z-index: 3; display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+    .zbox { display: flex; gap: 2px; background: #fffe; border: 1px solid var(--sl-color-neutral-300); border-radius: 8px; padding: 2px; box-shadow: 0 2px 8px #0002; }
+    #zoomctl .views { flex-direction: column; }
+    #scalebar { position: absolute; left: 12px; top: 10px; z-index: 2; pointer-events: none; font-size: 11px; color: #334; display: flex; flex-direction: column; gap: 2px; text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+    #sb-line { height: 7px; border: 2px solid #334; border-top: none; box-sizing: border-box; }
+    .vrow { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 8px; }
+
+    /* panel */
+    #panel sl-details { margin-bottom: 8px; }
+    #panel sl-details::part(content) { padding-top: 4px; }
     #info { line-height: 1.5; word-break: break-word; }
-    #info b { color: #fff; }
-    #modes { display: flex; gap: 4px; margin-bottom: 4px; }
-    #modes button { flex: 1; padding: 5px; background: #2e323b; color: #ccc; border: 1px solid #444; cursor: pointer; }
-    #modes button.on { background: #4f8fd6; color: #fff; }
-    #plist { max-height: 38vh; overflow: auto; border: 1px solid #333; }
-    #plist .grp { background: #2e323b; color: #8a93a3; font-size: 11px; text-transform: uppercase; padding: 2px 6px; position: sticky; top: 0; }
-    #plist .it { padding: 2px 6px 2px 12px; cursor: pointer; }
-    #plist .it:hover { background: #333842; }
-    #plist .it.on { background: #4f8fd6; color: #fff; }
     #info table { border-collapse: collapse; } #info td { padding: 0 6px 0 0; font-size: 12px; vertical-align: top; }
-    #b-err { color: #ff8a8a; white-space: pre-wrap; word-break: break-word; font-size: 12px; margin-top: 6px; }
-    #b-sliders .j { margin: 4px 0 8px; } #b-sliders input[type=range] { width: 100%; }
-    #b-bom table { border-collapse: collapse; font-size: 12px; } #b-bom td { padding: 0 6px 0 0; vertical-align: top; } #b-bom td:first-child { white-space: nowrap; }
+    .copy { background: var(--sl-color-neutral-100); border: 1px solid var(--sl-color-neutral-200); padding: 1px 5px; border-radius: 3px; cursor: pointer; user-select: all; display: block; margin: 2px 0; font-family: var(--sl-font-mono, monospace); font-size: 12px; color: #7a4a00; }
+    #b-err { position: absolute; left: 8px; right: 64px; top: 44px; z-index: 3; color: #a1122a; background: #fdecef; border: 1px solid #f3a6b3; border-radius: 6px; padding: 6px 10px; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+    #b-err:empty { display: none; }
+    .j { margin: 2px 0 10px; }
     #b-mounts { font-size: 12px; line-height: 1.4; word-break: break-word; }
-    #tip { position: fixed; pointer-events: none; background: #000c; color: #fff; padding: 3px 7px; border-radius: 3px; font-size: 12px; z-index: 5; }
-    .copy { background: #1b1d22; padding: 2px 5px; border-radius: 3px; cursor: pointer; user-select: all; display: inline-block; margin: 1px 0; font-family: monospace; color: #ffee88; }
-    #pr-dock { position: fixed; left: 12px; bottom: 12px; width: min(680px, calc(100vw - 280px - 36px)); display: flex; flex-direction: column; gap: 6px; z-index: 4; pointer-events: none; }
+    #hint { font-size: 11px; color: var(--sl-color-neutral-500); margin-top: 6px; }
+    #b-bom table { border-collapse: collapse; font-size: 13px; } #b-bom td { padding: 2px 10px 2px 0; vertical-align: top; } #b-bom td:first-child { white-space: nowrap; }
+    #bom-dlg::part(panel) { width: min(640px, 96vw); }
+    #tip { position: fixed; pointer-events: none; background: #1d2430e6; color: #fff; padding: 3px 7px; border-radius: 3px; font-size: 12px; z-index: 5; }
+    #tip[hidden] { display: none; }
+
+    /* prompt box (bottom of the 3D view) */
+    #pr-dock { position: absolute; left: 12px; bottom: 12px; width: min(680px, calc(100% - 24px)); display: flex; flex-direction: column; gap: 6px; z-index: 4; pointer-events: none; }
     #pr-dock > * { pointer-events: auto; }
     #pr-dock[hidden] { display: none; }
-    #pr-recent { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; color: #9aa; align-self: flex-start; max-width: 100%; direction: ltr; }
-    #pr-recent > i { background: #15171acc; padding: 2px 8px; border-radius: 10px; }
-    #pr-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; background: #23262df2; border: 1px solid #4a4f5a; border-radius: 10px; padding: 6px; box-shadow: 0 4px 18px #0008; }
+    #pr-recent { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-size: 11px; color: var(--sl-color-neutral-600); align-self: flex-start; max-width: 100%; direction: ltr; }
+    #pr-recent > i { background: #fffd; padding: 2px 8px; border-radius: 10px; }
+    #pr-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: flex-end; background: #fff; border: 1px solid var(--sl-color-neutral-300); border-radius: 10px; padding: 6px; box-shadow: 0 4px 18px #0002; }
     .chip { --c: #8aa0c0; display: inline-flex; align-items: center; gap: 4px; background: color-mix(in srgb, var(--c) 22%, #fff); color: #1a1d22; border: 1px solid color-mix(in srgb, var(--c) 55%, #fff); border-left: 5px solid var(--c); border-radius: 4px 10px 10px 4px; padding: 0 8px 0 5px; margin: 0 1px; font-size: 12px; line-height: 18px; white-space: nowrap; cursor: pointer; vertical-align: baseline; }
     .chip .ic { color: color-mix(in srgb, var(--c) 55%, #000); font-weight: 700; font-size: 12px; }
-    .chip:hover { filter: brightness(0.93); outline: 1px solid var(--c); }
-    .chip.stale { --c: #999 !important; background: #d8d8d8; color: #777; border-style: dashed; text-decoration: line-through; cursor: help; }
+    .chip:hover { filter: brightness(0.95); outline: 1px solid var(--c); }
+    .chip.stale { --c: #999 !important; background: #e4e4e4; color: #666; border-style: dashed; text-decoration: line-through; cursor: help; }
     .chip.stale::after { content: '\26A0'; color: #b36b00; text-decoration: none; }
     button.chip.sug { font-family: inherit; }
     #pr-wrap { position: relative; flex: 1 1 220px; min-width: 0; }
-    #pr-box { min-height: 1.7em; max-height: 6.8em; overflow: auto; background: #15171a; border: 1px solid #444; border-radius: 6px; padding: 6px 8px; line-height: 1.7; outline: none; white-space: pre-wrap; word-break: break-word; }
-    #pr-box:empty::before { content: attr(data-placeholder); color: #667; }
-    #pr-box:focus { border-color: #4f8fd6; }
-    #pr-pop { position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 4px; z-index: 6; background: #2e323b; border: 1px solid #555; max-height: 200px; overflow: auto; }
-    #pr-pop .it { padding: 2px 8px; cursor: pointer; font-family: monospace; font-size: 12px; } #pr-pop .it.on, #pr-pop .it:hover { background: #4f8fd6; color: #fff; }
+    #pr-box { min-height: 1.7em; max-height: 6.8em; overflow: auto; background: var(--sl-color-neutral-50); border: 1px solid var(--sl-color-neutral-300); border-radius: 6px; padding: 6px 8px; line-height: 1.7; outline: none; white-space: pre-wrap; word-break: break-word; }
+    #pr-box:empty::before { content: attr(data-placeholder); color: var(--sl-color-neutral-500); }
+    #pr-box:focus { border-color: var(--sl-color-primary-500); box-shadow: 0 0 0 3px var(--sl-color-primary-100); background: #fff; }
+    #pr-pop { position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 4px; z-index: 6; background: #fff; border: 1px solid var(--sl-color-neutral-300); border-radius: 6px; box-shadow: 0 4px 14px #0002; max-height: 200px; overflow: auto; }
+    #pr-pop[hidden] { display: none; }
+    #pr-pop .it { padding: 2px 8px; cursor: pointer; font-family: var(--sl-font-mono, monospace); font-size: 12px; } #pr-pop .it.on, #pr-pop .it:hover { background: var(--sl-color-primary-600); color: #fff; }
     #pr-btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-    #pr-btns button { padding: 6px 10px; background: #4f8fd6; color: #fff; border: 0; border-radius: 6px; cursor: pointer; } #pr-btns button#pr-clear { background: #3a3e48; }
-    @media (max-width: 640px) { #panel { width: 190px; } #pr-dock { width: calc(100vw - 190px - 28px); } }
-    #hint { position: fixed; left: 12px; top: 8px; color: #8a93a3; }
+    #pr-status { font-size: 12px; }
+
+    /* snap mode: canvas only */
+    html.snap #browser, html.snap #panel, html.snap #bar, html.snap #partbar, html.snap #zoomctl, html.snap #scalebar, html.snap #pr-dock, html.snap #b-err, html.snap #tip { display: none !important; }
+    html.snap body, html.snap #app { background: #f3f5f8; }
   </style>
 </head>
 <body>
-  <div id="canvas"></div>
-  <div id="panel">
-    <div id="modes"><button id="m-asm" class="on">Assemblies</button><button id="m-parts">Parts</button><button id="m-build">Build</button></div>
-    <div id="asm-box">
-      <h3>Model</h3><select id="picker"></select>
-      <div id="count"></div>
-    </div>
-    <div id="build-box" hidden>
-      <h3>Assembly file</h3><select id="b-file"></select>
-      <div id="b-err"></div>
-      <h3>Joints</h3><div id="b-sliders"></div>
-      <h3>Mounts</h3><div id="b-mounts"></div>
-      <h3>Bill of materials</h3><div id="b-bom"></div>
-      <label><input type="checkbox" id="b-ports" checked> Show clicked port marker</label>
-    </div>
-    <div id="parts-box" hidden>
-      <h3>Library</h3><div id="plist"></div>
-      <div id="param" hidden>
-        <h3>Parametric V-slot</h3>
-        <select id="p-profile"></select> length (mm) <input id="p-len" type="number" value="300" min="20" max="2000" step="10" style="width:70px">
+  <div id="app">
+    <aside id="browser" class="side" data-side><div id="browser-body">
+      <sl-tab-group id="tabs">
+        <sl-tab slot="nav" panel="parts">Parts</sl-tab>
+        <sl-tab slot="nav" panel="asm">Assemblies</sl-tab>
+        <sl-tab slot="nav" panel="models">STEP models</sl-tab>
+        <sl-tab-panel name="parts">
+          <sl-input id="q-parts" size="small" placeholder="Search parts" clearable><sl-icon name="search" slot="prefix"></sl-icon></sl-input>
+          <div id="plist" class="list"></div>
+        </sl-tab-panel>
+        <sl-tab-panel name="asm">
+          <sl-input id="q-asm" size="small" placeholder="Search assemblies (assemblies/*.json)" clearable><sl-icon name="search" slot="prefix"></sl-icon></sl-input>
+          <div id="alist" class="list"></div>
+        </sl-tab-panel>
+        <sl-tab-panel name="models">
+          <sl-input id="q-models" size="small" placeholder="Search converted STEP models" clearable><sl-icon name="search" slot="prefix"></sl-icon></sl-input>
+          <div id="mlist" class="list"></div>
+        </sl-tab-panel>
+      </sl-tab-group>
+    </div></aside>
+
+    <main id="center">
+      <div id="bar">
+        <sl-icon-button id="bt-browser" name="layout-sidebar" label="Toggle browser" style="font-size:18px"></sl-icon-button>
+        <div id="title">OpenBuilds viewer</div>
+        <sl-button id="bt-bom" size="small" hidden><sl-icon slot="prefix" name="list-ul"></sl-icon>Bill of materials</sl-button>
+        <sl-icon-button id="bt-panel" name="layout-sidebar-reverse" label="Toggle details panel" style="font-size:18px"></sl-icon-button>
       </div>
-      <label><input type="checkbox" id="t-ports" checked> Port frames</label>
-      <label><input type="checkbox" id="t-labels" checked> Port labels</label>
-    </div>
-    <h3>Display</h3>
-    <label><input type="checkbox" id="t-world" checked> World axes</label>
-    <label><input type="checkbox" id="t-part" checked> Selected part axes</label>
-    <label><input type="checkbox" id="t-grid" checked> Grid</label>
-    <h3>Selection</h3>
-    <div id="info">Click a part.</div>
-  </div>
-  <div id="pr-dock" hidden>
-    <div id="pr-recent"></div>
-    <div id="pr-row">
-      <div id="pr-wrap">
-        <div id="pr-box" contenteditable="true" spellcheck="false" data-placeholder="Ask for a change. Click things in 3D to insert them, or type @ to pick an instance."></div>
-        <div id="pr-pop" hidden></div>
+      <div id="partbar" hidden>
+        <b id="pb-profile"></b><span>length</span>
+        <div id="pb-lens"><sl-button size="small" data-len="250">250</sl-button><sl-button size="small" data-len="500">500</sl-button><sl-button size="small" data-len="750">750</sl-button><sl-button size="small" data-len="1000">1000</sl-button><sl-button size="small" data-len="1500">1500</sl-button></div>
+        <sl-input id="pb-custom" size="small" type="number" min="20" max="3000" step="1" value="500" placeholder="custom"><span slot="suffix">mm</span></sl-input>
       </div>
-      <div id="pr-btns"><button id="pr-copy" type="button">Copy prompt</button><button id="pr-clear" type="button">Clear</button><span id="pr-status"></span></div>
-    </div>
+      <div id="stage">
+        <div id="canvas"></div>
+        <div id="scalebar"><div id="sb-line"></div><span id="sb-text"></span></div>
+        <div id="zoomctl">
+          <div class="zbox"><sl-icon-button name="zoom-in" label="Zoom in" data-zoom="in"></sl-icon-button><sl-icon-button name="zoom-out" label="Zoom out" data-zoom="out"></sl-icon-button><sl-icon-button name="bounding-box" label="Fit (frame the item)" data-zoom="fit"></sl-icon-button></div>
+          <div class="zbox views"><sl-button size="small" variant="text" data-view="iso">Iso</sl-button><sl-button size="small" variant="text" data-view="top">Top</sl-button><sl-button size="small" variant="text" data-view="front">Front</sl-button><sl-button size="small" variant="text" data-view="right">Right</sl-button></div>
+        </div>
+        <div id="b-err"></div>
+        <div id="pr-dock" hidden>
+          <div id="pr-recent"></div>
+          <div id="pr-row">
+            <div id="pr-wrap">
+              <div id="pr-box" contenteditable="true" spellcheck="false" data-placeholder="Ask for a change. Click things in 3D to insert them, or type @ to pick an instance."></div>
+              <div id="pr-pop" hidden></div>
+            </div>
+            <div id="pr-btns"><sl-button id="pr-copy" size="small" variant="primary">Copy prompt</sl-button><sl-button id="pr-clear" size="small">Clear</sl-button><span id="pr-status"></span></div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <aside id="panel" class="side" data-side><div id="panel-body">
+      <sl-details id="d-sel" summary="Selection" open><div id="info">Click a part.</div></sl-details>
+      <sl-details id="d-joints" summary="Joints" open data-mode="build"><div id="b-sliders"></div></sl-details>
+      <sl-details id="d-mounts" summary="Mounts" data-mode="build"><div id="b-mounts"></div></sl-details>
+      <sl-details id="d-ports" summary="Ports" open data-mode="part">
+        <sl-checkbox id="t-ports" checked>Port frames</sl-checkbox><br>
+        <sl-checkbox id="t-labels" checked>Port labels</sl-checkbox>
+      </sl-details>
+      <sl-details id="d-disp" summary="Display" open>
+        <sl-checkbox id="t-world" checked>World axes</sl-checkbox><br>
+        <sl-checkbox id="t-part" checked>Selected part axes</sl-checkbox><br>
+        <sl-checkbox id="t-grid" checked>Grid</sl-checkbox><br>
+        <sl-checkbox id="t-shadows" checked>Shadows</sl-checkbox><br>
+        <sl-checkbox id="t-edges" checked>Edge lines</sl-checkbox><br>
+        <sl-checkbox id="b-ports" checked data-mode="build">Show clicked port marker</sl-checkbox>
+        <div class="vrow" style="margin-top:8px"><sl-button size="small" data-zoom="in"><sl-icon slot="prefix" name="zoom-in"></sl-icon>Zoom in</sl-button><sl-button size="small" data-zoom="out"><sl-icon slot="prefix" name="zoom-out"></sl-icon>Zoom out</sl-button><sl-button size="small" data-zoom="fit"><sl-icon slot="prefix" name="bounding-box"></sl-icon>Fit</sl-button></div>
+        <div class="vrow"><sl-button size="small" data-view="iso">Iso</sl-button><sl-button size="small" data-view="top">Top</sl-button><sl-button size="small" data-view="front">Front</sl-button><sl-button size="small" data-view="right">Right</sl-button></div>
+        <div id="hint"></div>
+      </sl-details>
+    </div></aside>
   </div>
+
+  <sl-drawer id="dr-browser" placement="start" label="Browser" data-side></sl-drawer>
+  <sl-drawer id="dr-panel" placement="end" label="Details" data-side></sl-drawer>
+  <sl-dialog id="bom-dlg" label="Bill of materials">
+    <div id="b-bom"></div>
+    <sl-button slot="footer" id="bom-copy" size="small"><sl-icon slot="prefix" name="clipboard"></sl-icon>Copy as text</sl-button>
+    <sl-button slot="footer" id="bom-close" size="small" variant="primary">Close</sl-button>
+  </sl-dialog>
   <div id="tip" hidden></div>
-  <div id="hint"></div>
   <script type="module" src="./main.js"></script>
 </body>
 </html>

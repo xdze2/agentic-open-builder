@@ -4,24 +4,25 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { solve, AsmError, findPort } from '../lib/assembly.js';
 import * as m4 from '../lib/mat.js';
-import { vslotGeometry } from './vslot.js';
+import { railGeometry } from './vslot.js';
 import { slotsOf, FACES } from '../lib/vslot_ports.js';
 import { edgePorts } from '../lib/assembly.js';
 import { createPrompt, short, portWords } from './prompt.js';
 
 export function createBuild(ctx) {
-  const { $, scene, camera, renderer, controls, makeGrid, frame, colorOfType } = ctx;
+  const { $, scene, camera, renderer, controls, stage, fitScene, frame, colorOfType, ndc } = ctx;
   const group = new THREE.Group();
-  const marker = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffee00, depthTest: false }));
+  const marker = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0xff6a00, depthTest: false }));
   marker.renderOrder = 20; marker.visible = false;
-  const edgeLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), new THREE.LineBasicMaterial({ color: 0xffee00, depthTest: false }));
+  const edgeLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), new THREE.LineBasicMaterial({ color: 0xff6a00, depthTest: false }));
   edgeLine.renderOrder = 21; edgeLine.visible = false; edgeLine.frustumCulled = false;
-  const EDGE_TOL = 4; // mm: a click this close to a plate edge selects the edge instead of the face
+  // click tolerances: 4 mm (plate edge) / 5 mm (port, hole) at normal zoom; widened to ~6 / 8 screen pixels when zoomed out (px = camera.zoom * mm), capped at 10 / 12 mm
+const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () => Math.max(5, Math.min(12, 8 / camera.zoom));
   const geoCache = new Map(), defCache = new Map();
-  let file = null, asm = null, res = null, meshes = new Map(), overrides = {}, selected = null, framed = null;
-  const highlight = new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0x661122, roughness: 0.4 });
+  let bomLines = [], file = null, asm = null, res = null, meshes = new Map(), overrides = {}, selected = null, framed = null;
+  const highlight = stage.surface(new THREE.MeshStandardMaterial({ color: 0xff3366, emissive: 0x661122, roughness: 0.4 }));
   const matByType = new Map();
-  const matFor = (type) => { if (!matByType.has(type)) matByType.set(type, new THREE.MeshStandardMaterial({ color: colorOfType(type), roughness: 0.55, metalness: 0.2 })); return matByType.get(type); };
+  const matFor = (type) => { if (!matByType.has(type)) matByType.set(type, stage.surface(new THREE.MeshStandardMaterial({ color: colorOfType(type), roughness: 0.55, metalness: 0.2 }))); return matByType.get(type); };
 
   const loader = {
     index: () => fetch('library/index.json').then((r) => r.json()),
@@ -29,7 +30,7 @@ export function createBuild(ctx) {
     assembly: (f) => fetch(`assemblies/${f}`, { cache: 'no-store' }).then((r) => { if (!r.ok) throw new AsmError(`cannot load assemblies/${f}`); return r.json(); }),
   };
   async function geometryOf(inst) {
-    if (inst.def.parametric && inst.def.length) return vslotGeometry(inst.def.profile, inst.def.length);
+    if (inst.def.parametric && inst.def.length) return railGeometry(inst.def.profile, inst.def.length);
     if (!geoCache.has(inst.slug)) {
       const g = await new GLTFLoader().loadAsync(`library/${inst.slug}/part.glb`);
       let geo = null; g.scene.traverse((o) => { if (o.isMesh && !geo) geo = o.geometry; });
@@ -38,12 +39,6 @@ export function createBuild(ctx) {
     return geoCache.get(inst.slug);
   }
   const toMatrix = (M) => new THREE.Matrix4().set(...M);
-
-  async function listFiles() {
-    const files = await fetch('assemblies/_list.json').then((r) => r.json()).catch(() => []);
-    $('b-file').innerHTML = files.map((f) => `<option>${f}</option>`).join('');
-    return files;
-  }
 
   async function rebuild(keepCamera) {
     $('b-err').textContent = '';
@@ -57,7 +52,7 @@ export function createBuild(ctx) {
       meshes = new Map();
       for (const inst of res.instances) {
         const mesh = new THREE.Mesh(await geometryOf(inst), matFor(inst.def.type));
-        mesh.matrixAutoUpdate = false; mesh.userData = { name: inst.name };
+        mesh.matrixAutoUpdate = false; mesh.userData = { name: inst.name }; stage.decorate(mesh);
         group.add(mesh); meshes.set(inst.name, mesh);
       }
       rebuild.names = names; selected = null;
@@ -65,7 +60,8 @@ export function createBuild(ctx) {
     for (const inst of res.instances) { const m = meshes.get(inst.name); m.matrix.copy(toMatrix(inst.M)); m.matrixWorldNeedsUpdate = true; }
     group.updateMatrixWorld(true);
     renderPanel(); hover(null); prompt.refresh();
-    if (!keepCamera || framed !== file) { const box = new THREE.Box3().setFromObject(group); makeGrid(box); frame(box); framed = file; }
+    const box = new THREE.Box3().setFromObject(group); fitScene(box);
+    if (!keepCamera || framed !== file) { frame(box); framed = file; }
   }
 
   function renderPanel() {
@@ -73,14 +69,15 @@ export function createBuild(ctx) {
     const sig = res.joints.map((j) => j.state).join(',');
     if (renderPanel.sig !== sig) {
       renderPanel.sig = sig;
-      $('b-sliders').innerHTML = res.joints.map((j) => `<div class="j"><div>${j.state}: <b id="jv-${j.state}">${j.value}</b> mm <span style="color:#8a93a3">${j.label || ''}</span></div>` +
-        `<input type="range" data-j="${j.state}" min="${j.range ? j.range[0] : 0}" max="${j.range ? j.range[1] : 500}" step="0.5" value="${j.value}"></div>`).join('') || '<i>none</i>';
-      $('b-sliders').querySelectorAll('input').forEach((el) => el.addEventListener('input', () => { overrides[el.dataset.j] = +el.value; $('jv-' + el.dataset.j).textContent = el.value; scheduleUpdate(); }));
+      $('b-sliders').innerHTML = res.joints.map((j) => `<div class="j"><div>${j.state}: <b id="jv-${j.state}">${j.value}</b> mm <span style="color:var(--sl-color-neutral-500)">${j.label || ''}</span></div>` +
+        `<sl-range data-j="${j.state}" min="${j.range ? j.range[0] : 0}" max="${j.range ? j.range[1] : 500}" step="0.5" value="${j.value}"></sl-range></div>`).join('') || '<i>none</i>';
+      $('b-sliders').querySelectorAll('sl-range').forEach((el) => el.addEventListener('sl-input', () => { overrides[el.dataset.j] = +el.value; $('jv-' + el.dataset.j).textContent = el.value; scheduleUpdate(); }));
     } else for (const j of res.joints) { const el = $('jv-' + j.state); if (el) el.textContent = j.value; }
-    $('b-bom').innerHTML = '<table>' + res.bom.map((r) => `<tr><td>${r.count} x</td><td>${r.type}</td><td>${r.cut_length ? `${r.profile || ''} V-slot rail, cut <b>${r.cut_length}</b> mm${r.parametric ? '' : ' (library mesh)'}` : r.slug}</td></tr>`).join('') + '</table>' +
-      `<div style="color:#8a93a3">${res.instances.length} instances</div>`;
+    $('b-bom').innerHTML = '<table>' + res.bom.map((r) => `<tr><td>${r.count} x</td><td>${r.type}</td><td>${r.cut_length ? `${r.profile || ''} V-slot rail, cut <b>${r.cut_length} mm</b>${r.parametric ? '' : ' (library mesh)'}, ${dimsText(r.dims)}` : `${r.slug} <span style="color:var(--sl-color-neutral-500)">${dimsText(r.dims)}</span>`}</td></tr>`).join('') + '</table>' +
+      `<div style="color:var(--sl-color-neutral-500)">${res.instances.length} instances</div>`;
     $('b-mounts').innerHTML = res.mounts.map((m) => `<b>${m.name}</b>: ${m.rail} on ${m.plate} ${m.plate_face}, ${m.direction}, overhang ${m.overhang} mm` +
       (m.screw ? `<br>screw ${m.screw.slug.replace('low-profile-screw-m5-9x9x', 'M5 LP ')} (L${m.screw.length}, +${m.screw.protrusion} mm through)<br>` + m.fasteners.map((h) => `${h.hole} @ ${h.at_mm_from_end_a} mm`).join('<br>') : '')).join('<hr>') || '<i>none</i>';
+    bomLines = res.bom.map((r) => `${r.count} x ${r.type}  ${bomText(r)}`);
     if (res.warnings.length) $('b-err').textContent = res.warnings.map((w) => 'WARNING: ' + w).join('\n');
   }
   let pending = false;
@@ -88,6 +85,8 @@ export function createBuild(ctx) {
 
   // ---- naming: instance, port / hole nearest to a hit ----
   const f2 = (v) => +v.toFixed(2);
+  const dimsText = (d) => d.map((v) => +(+v).toFixed(1)).join(' × ') + ' mm';
+  const bomText = (r) => `${r.cut_length ? `${r.profile || ''} V-slot rail, cut ${r.cut_length} mm${r.parametric ? '' : ' (library mesh)'}` : r.slug}${r.cut_length ? '' : `  (${dimsText(r.dims)})`}`;
   function describeHit(hit) {
     const name = hit.object.userData.name, inst = res.instances.find((i) => i.name === name);
     const def = inst.def, p = m4.point(m4.inv(inst.M), hit.point.toArray());
@@ -112,18 +111,18 @@ export function createBuild(ctx) {
     }
     if (def.type === 'plate' && def.bbox) { // plate edges: bounding-rectangle sides, plate-local
       const { min, max } = def.bbox;
-      let eb = null;
+      let eb = null; const et = edgeTol();
       for (const e of edgePorts(def)) {
         const ax = e.z[0] ? 0 : 1, oax = 1 - ax, d = Math.abs(p[ax] - e.origin[ax]);
-        if (p[oax] < min[oax] - EDGE_TOL || p[oax] > max[oax] + EDGE_TOL || p[2] < min[2] - EDGE_TOL || p[2] > max[2] + EDGE_TOL) continue;
-        if (d <= EDGE_TOL && (!eb || d < eb.d)) eb = { d, e };
+        if (p[oax] < min[oax] - et || p[oax] > max[oax] + et || p[2] < min[2] - et || p[2] > max[2] + et) continue;
+        if (d <= et && (!eb || d < eb.d)) eb = { d, e };
       }
       if (eb) { out.edge = eb; out.refs.unshift(`${nm}.${eb.e.name}`); }
     }
     if (best && best.d < 12 && !out.edge) { out.port = best; out.refs.unshift(`${nm}.${best.extra?.hole ? `${best.extra.face}:${best.extra.hole.name}` : best.label}`); }
     // the chip: edge (<4 mm) > port / hole (<5 mm) > the whole instance
     if (out.edge) out.sel = { ref: `${nm}.${out.edge.e.name}`, label: `${short(nm)} › ${portWords(out.edge.e.name)}` };
-    else if (best && best.d < 5) out.sel = { ref: out.refs[0], label: `${short(nm)} › ${best.extra?.hole ? 'hole ' + best.extra.hole.name : best.label}` };
+    else if (best && best.d < portTol()) out.sel = { ref: out.refs[0], label: `${short(nm)} › ${best.extra?.hole ? 'hole ' + best.extra.hole.name : best.label}` };
     else out.sel = { ref: nm, label: short(nm) };
     if (def.holes) out.refs.push(`${nm}.${Math.abs(p[2]) < Math.abs(p[2] - def.dims[2]) ? 'front' : 'back'}@${f2(p[0])},${f2(p[1])}`);
     return out;
@@ -133,8 +132,8 @@ export function createBuild(ctx) {
     if (!hit) { selected = null; marker.visible = false; edgeLine.visible = false; $('info').textContent = 'Click a part.'; return; }
     selected = hit.object; selected.material = highlight;
     const d = describeHit(hit), copy = (s) => `<div class="copy" title="click to copy">${s}</div>`;
-    $('info').innerHTML = `<b>${d.name}</b><br>part: ${d.def.slug}<br>type: ${d.def.type}${d.def.profile ? ` (${d.def.profile}${d.def.length ? `, parametric, cut ${d.def.length} mm` : ' library mesh'})` : ''}<br>` +
-      `hit (part frame): ${d.p.map(f2).join(', ')}<br>` +
+    $('info').innerHTML = `<b>${d.name}</b><br>part: ${d.def.slug}<br>size: ${dimsText(d.def.dims)}<br>type: ${d.def.type}${d.def.profile ? ` (${d.def.profile}${d.def.length ? `, parametric, cut ${d.def.length} mm` : ' library mesh'})` : ''}<br>` +
+      `hit (part frame): ${d.p.map(f2).join(', ')} mm<br>` +
       (d.edge ? `edge <b>${d.edge.e.name}</b> (${f2(d.edge.d)} mm away, length ${f2(d.edge.e.length)} mm)<br>` : '') +
       (d.port && !d.edge ? `nearest port: <b>${d.port.label}</b> (${f2(d.port.d)} mm away${d.port.extra?.hole ? `, hole d${d.port.extra.hole.d}` : ''})<br>` : '') +
       (d.rail ? `rail face <b>${d.rail.face}</b>, slot ${d.rail.slot}${d.rail.onSlot ? '' : ' (hit is off the slot line)'}, <b>${d.rail.at}</b> mm from end_a<br>` : '') +
@@ -154,10 +153,10 @@ export function createBuild(ctx) {
   }
 
   // ---- chips <-> 3D: resolve a ref, hover glow, click = select + frame ----
-  const hoverMat = new THREE.MeshStandardMaterial({ color: 0xffd34d, emissive: 0x996600, roughness: 0.4 });
-  const hoverMarker = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0x00e5ff, depthTest: false }));
+  const hoverMat = stage.surface(new THREE.MeshStandardMaterial({ color: 0xffd34d, emissive: 0x996600, roughness: 0.4 }));
+  const hoverMarker = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 12), new THREE.MeshBasicMaterial({ color: 0x0090b0, depthTest: false }));
   hoverMarker.renderOrder = 22; hoverMarker.visible = false;
-  const hoverLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), new THREE.LineBasicMaterial({ color: 0xffee00, depthTest: false }));
+  const hoverLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1, 0, 0)]), new THREE.LineBasicMaterial({ color: 0xff6a00, depthTest: false }));
   hoverLine.renderOrder = 23; hoverLine.visible = false; hoverLine.frustumCulled = false;
   let hovered = null;
   /** ref -> {inst, mesh, color, kind, point?, edge?} ; null = does not exist now ; undefined = nothing solved yet */
@@ -184,22 +183,7 @@ export function createBuild(ctx) {
     if (r.edge) { hoverLine.geometry.setFromPoints(r.edge.map((q) => new THREE.Vector3(...q))); hoverLine.visible = true; }
     else if (r.point) { hoverMarker.position.set(...r.point); hoverMarker.scale.setScalar(2.2); hoverMarker.visible = true; }
   }
-  let fly = 0;
-  function flyTo(box) {
-    const size = box.getSize(new THREE.Vector3()), center = box.getCenter(new THREE.Vector3());
-    const dist = Math.max(size.length() / 2, 25) / Math.sin((camera.fov * Math.PI) / 360) * 1.1;
-    const dir = camera.position.clone().sub(controls.target).normalize();
-    const p0 = camera.position.clone(), t0 = controls.target.clone(), p1 = center.clone().addScaledVector(dir, dist);
-    camera.near = Math.max(Math.min(camera.near, dist / 1000), 0.1); camera.far = Math.max(camera.far, dist * 20); camera.updateProjectionMatrix();
-    const id = ++fly, T = performance.now();
-    (function step(now) {
-      if (id !== fly) return;
-      const k = Math.min(1, (now - T) / 450), e = k * k * (3 - 2 * k);
-      camera.position.lerpVectors(p0, p1, e); controls.target.lerpVectors(t0, center, e); controls.update();
-      if (k < 1) requestAnimationFrame(step);
-    })(T);
-  }
-  addEventListener('pointerdown', () => { fly++; }, true); // the user grabbed the camera: stop animating
+  const flyTo = (box) => stage.flyTo(box, 40);
   function focus(ref) {
     const r = resolveRef(ref); if (!r) return;
     const box = new THREE.Box3();
@@ -216,7 +200,7 @@ export function createBuild(ctx) {
   }
   const prompt = createPrompt({ $, getResult: () => res, getFile: () => file, hooks: { resolve: resolveRef, hover, focus } });
   const ray = new THREE.Raycaster();
-  const hitAt = (cx, cy) => { ray.setFromCamera(new THREE.Vector2((cx / innerWidth) * 2 - 1, -(cy / innerHeight) * 2 + 1), camera); return ray.intersectObjects(group.children, false)[0]; };
+  const hitAt = (cx, cy) => { ray.setFromCamera(ndc(cx, cy), camera); return ray.intersectObjects(group.children, false)[0]; };
   addEventListener('pointermove', (e) => {
     const tip = $('tip');
     if (!active || e.target !== renderer.domElement || !res) { tip.hidden = true; return; }
@@ -229,20 +213,16 @@ export function createBuild(ctx) {
   async function enter(initialFile) {
     active = true;
     scene.add(group, marker, edgeLine, hoverMarker, hoverLine); $('pr-dock').hidden = false;
-    const files = await listFiles();
-    if (!files.length) { $('b-err').textContent = 'No assemblies/*.json'; return; }
-    await open(initialFile && files.includes(initialFile) ? initialFile : file && files.includes(file) ? file : files.includes('plotter.json') ? 'plotter.json' : files[0]);
+    await open(initialFile || file || 'plotter.json');
   }
   function leave() { hover(null); active = false; $('pr-dock').hidden = true; scene.remove(group, marker, edgeLine, hoverMarker, hoverLine); $('tip').hidden = true; }
   async function open(f) {
     file = f; overrides = {}; renderPanel.sig = null; rebuild.names = null; framed = null;
-    $('b-file').value = f;
     asm = await loader.assembly(f).catch((e) => { $('b-err').textContent = 'ERROR: ' + e.message; return null; });
     if (!asm) return;
     await rebuild(false);
-    history.replaceState(null, '', `#build/${f}`);
+    ctx.onOpen?.(f);
   }
-  $('b-file').onchange = (e) => open(e.target.value).catch(console.error);
 
   // live reload: any change to assemblies/*.json re-reads the current file (sub-assemblies included: reload on any file)
   const reload = async () => {
@@ -254,5 +234,5 @@ export function createBuild(ctx) {
   };
   if (import.meta.hot) import.meta.hot.on('assemblies-changed', (d) => { reload().catch(console.error); });
 
-  return { prompt, group, enter, leave, hitAt, show, isActive: () => active, setState: (s) => { Object.assign(overrides, s); return rebuild(true); }, get result() { return res; } };
+  return { prompt, group, bomText: () => `Bill of materials: ${file} (${res?.instances.length} instances)\n` + bomLines.join('\n'), enter, leave, hitAt, show, isActive: () => active, setState: (s) => { Object.assign(overrides, s); return rebuild(true); }, get result() { return res; } };
 }

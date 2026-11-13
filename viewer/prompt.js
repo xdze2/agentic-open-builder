@@ -34,17 +34,21 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
 
   // ---- caret handling ----
   const inBox = (n) => n && box.contains(n);
-  document.addEventListener('selectionchange', () => {
+  // selectionchange is async and coalesced, so also save synchronously on input/key/mouse events
+  const save = () => {
     const s = getSelection();
     if (s.rangeCount && inBox(s.anchorNode)) saved = s.getRangeAt(0).cloneRange();
-  });
+  };
+  document.addEventListener('selectionchange', save);
+  for (const ev of ['input', 'keyup', 'mouseup']) box.addEventListener(ev, save);
   box.addEventListener('focus', () => { armed = true; });
   addEventListener('pointerdown', (e) => {
     // clicks on the canvas or on the prompt widgets keep the box armed; anything else in the panel disarms it
     if (e.target === $('canvas').firstChild || e.target.closest?.('#pr-dock') || e.target.closest?.('#canvas')) return;
-    if (e.target.closest?.('#panel')) armed = false;
+    if (e.target.closest?.('.side,[data-side]')) armed = false;
   }, true);
   function restore() {
+    save(); // the live caret wins when it is still in the box
     box.focus();
     const s = getSelection();
     s.removeAllRanges();
@@ -182,7 +186,7 @@ export function createPrompt({ $, getResult, getFile, hooks = {} }) {
 
   // ---- copy / clear ----
   let tmo = 0;
-  const say = (m, bad) => { status.textContent = m; status.style.color = bad ? '#ff8a8a' : '#8fdc8f'; clearTimeout(tmo); tmo = setTimeout(() => (status.textContent = ''), 2500); };
+  const say = (m, bad) => { status.textContent = m; status.style.color = bad ? '#b3261e' : '#1b7f3b'; clearTimeout(tmo); tmo = setTimeout(() => (status.textContent = ''), 2500); };
   function fallbackCopy(text) {
     const ta = document.createElement('textarea'); ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0';
     document.body.appendChild(ta); ta.select();

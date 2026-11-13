@@ -17,7 +17,9 @@ const listModels = () =>
 const libDir = path.resolve(root, '../library');
 const asmDir = path.resolve(root, '../assemblies');
 const listAsm = () => (fs.existsSync(asmDir) ? fs.readdirSync(asmDir).filter((f) => f.endsWith('.json') && !f.startsWith('_')).sort() : []);
-const MIME = { '.glb': 'model/gltf-binary', '.json': 'application/json' };
+const MIME = { '.glb': 'model/gltf-binary', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+// Shoelace icons are fetched at runtime from <base>/shoelace/assets/icons (see setBasePath in main.js)
+const slDir = path.resolve(root, '../node_modules/@shoelace-style/shoelace/dist');
 
 function modelsPlugin() {
   const id = 'virtual:models', rid = '\0' + id;
@@ -31,7 +33,7 @@ function modelsPlugin() {
       server.watcher.add(asmDir);
       const changed = (f) => {  if (f.startsWith(asmDir + path.sep) && f.endsWith('.json')) server.ws.send({ type: 'custom', event: 'assemblies-changed', data: { file: path.basename(f) } }); };
       server.watcher.on('change', changed); server.watcher.on('add', changed);
-      for (const [url, dir] of [['/models', modelsDir], ['/library', libDir], ['/assemblies', asmDir]])
+      for (const [url, dir] of [['/shoelace', slDir], ['/models', modelsDir], ['/library', libDir], ['/assemblies', asmDir]])
         server.middlewares.use(url, (req, res, next) => {
           const file = path.join(dir, decodeURIComponent(req.url.split('?')[0]));
           if (!file.startsWith(dir + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return next();
@@ -41,11 +43,13 @@ function modelsPlugin() {
     },
     closeBundle() { // build: copy only what the viewer loads
       const out = path.resolve(root, 'dist/models');
+      fs.cpSync(path.join(slDir, 'assets/icons'), path.resolve(root, 'dist/shoelace/assets/icons'), { recursive: true });
       for (const m of listModels()) {
         fs.mkdirSync(path.join(out, m), { recursive: true });
-        for (const f of ['assembly.glb', 'catalog.json'])
-          fs.copyFileSync(path.join(modelsDir, m, f), path.join(out, m, f));
+        for (const f of ['assembly.glb', 'catalog.json', 'thumb.png'])
+          if (fs.existsSync(path.join(modelsDir, m, f))) fs.copyFileSync(path.join(modelsDir, m, f), path.join(out, m, f));
       }
+      if (fs.existsSync(path.join(asmDir, '_thumbs'))) fs.cpSync(path.join(asmDir, '_thumbs'), path.resolve(root, 'dist/assemblies/_thumbs'), { recursive: true });
       if (fs.existsSync(asmDir)) { const o = path.resolve(root, 'dist/assemblies'); fs.mkdirSync(o, { recursive: true }); for (const f of listAsm()) fs.copyFileSync(path.join(asmDir, f), path.join(o, f)); fs.writeFileSync(path.join(o, '_list.json'), JSON.stringify(listAsm())); }
       if (fs.existsSync(libDir)) fs.cpSync(libDir, path.resolve(root, 'dist/library'), { recursive: true }); // part.glb, part.json, index.json
     },

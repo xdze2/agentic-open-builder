@@ -3,6 +3,7 @@
 // Simplified: every 20 mm module has one T-slot per outer side (slot opening 6.2 mm, groove 6.1 mm deep, 1.8 mm lips)
 // and a 4.2 mm centre bore. The V-groove chamfers of the real profile and the corner webs are not modelled.
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { PROFILES, vslotDef } from '../lib/vslot_ports.js';
 
 export { PROFILES }; // [modules along X, along Y], 20 mm each; ports/slots live in lib/vslot_ports.js (shared with node)
@@ -42,3 +43,40 @@ export function vslotGeometry(profile, length) {
 
 /** part.json-like description of the parametric rail (same schema as library parts; ports incl. faces and slots) */
 export const vslotPart = (profile, length) => vslotDef(profile, length);
+
+// ---- real profile: stretch the library STEP rail mesh ----
+// The library rails (library/v-slot-<profile>x<L>-linear-rail) share the parametric frame (length +Z from z=0, centred, longest side X) and are pure
+// extrusions (vertices only at z=0 and z=Lref, side normals nz=0), so stretching z by L/Lref gives an exact cut of any length with the true V-groove profile.
+// Ports / picking come from lib/vslot_ports.js, not from this mesh. vslotGeometry() above is only the fallback for profiles without a library mesh.
+let libIdx = null; const refCache = new Map(), cutCache = new Map();
+async function refRail(profile) {
+  if (!refCache.has(profile)) refCache.set(profile, (async () => {
+    libIdx ||= await fetch('library/index.json').then((r) => r.json());
+    const re = new RegExp(`^v-slot-${profile}x(\\d+)-linear-rail$`);
+    const cands = libIdx.parts.filter((p) => p.type === 'rail' && re.test(p.slug)).map((p) => ({ slug: p.slug, L: +p.slug.match(re)[1] })).sort((a, b) => Math.abs(a.L - 500) - Math.abs(b.L - 500));
+    if (!cands.length) return null;
+    const g = await new GLTFLoader().loadAsync(`library/${cands[0].slug}/part.glb`);
+    let geo = null; g.scene.updateMatrixWorld(true);
+    g.scene.traverse((o) => { if (o.isMesh && !geo) { geo = o.geometry.clone(); geo.applyMatrix4(o.matrixWorld); } });
+    if (!geo) return null;
+    geo.computeBoundingBox();
+    return { geo, L: geo.boundingBox.max.z }; // measured: frame check z in [0, L]
+  })().catch(() => null));
+  return refCache.get(profile);
+}
+/** geometry of a cut V-slot rail: the real profile when the library has one, else the simplified generated one */
+export async function railGeometry(profile, length) {
+  const key = `${profile}@${length}`;
+  if (!cutCache.has(key)) {
+    const ref = await refRail(profile);
+    let geo;
+    if (ref && Math.abs(ref.geo.boundingBox.min.z) < 1e-3) {
+      geo = ref.geo.clone();
+      const pos = geo.attributes.position, k = length / ref.L;
+      for (let i = 0; i < pos.count; i++) pos.setZ(i, pos.getZ(i) * k);
+      pos.needsUpdate = true; geo.computeBoundingBox(); geo.computeBoundingSphere();
+    } else geo = vslotGeometry(profile, length);
+    cutCache.set(key, geo);
+  }
+  return cutCache.get(key);
+}
