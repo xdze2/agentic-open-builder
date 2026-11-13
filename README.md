@@ -32,7 +32,7 @@ The chips become named references, and the drawn box is turned into 3D points (i
 
 ## How it fits together
 
-![User, front (viewer and prompt editor), backend (dev server, tools, user_data) and the Claude Code agent](docs/architecture.svg)
+![Front app (3D view, parts, prompt), local backend (JSON and CAD files) and the Claude agent](docs/workflow.excalidraw.svg)
 
 ## Quick start
 
