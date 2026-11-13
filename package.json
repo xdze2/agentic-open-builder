@@ -1,8 +1,8 @@
 {
-  "name": "openbuilds_studio2",
+  "name": "agentic-open-builder",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Agent-driven virtual assembly of OpenBuilds machines, with a three.js viewer",
+  "license": "MIT",
   "scripts": {
     "convert": "node tools/convert_all.mjs",
     "library": "node tools/build_library.mjs",
@@ -15,7 +15,7 @@
   },
   "keywords": [],
   "type": "module",
-  "private": "true",
+  "private": true,
   "dependencies": {
     "@gltf-transform/core": "4.5.1",
     "@shoelace-style/shoelace": "2.20.1",

@@ -3,3 +3,6 @@ viewer/dist
 
 # Private data: CAD downloads, converted models, built library, assemblies, snapshots (see lib/paths.js)
 user_data/
+
+# Personal drafts
+*.draft.md

@@ -1,4 +1,4 @@
-# OpenBuilds Studio
+# Agentic Open Builder
 
 A virtual assembly of a table-top pen plotter made from OpenBuilds parts, built before buying the hardware. It is used to check fit, axis travel and collisions, and to get a bill of materials.
 
@@ -66,3 +66,7 @@ A fresh clone has an empty viewer: put the CAD files in `user_data/parts/`, then
 ## Sources and licenses
 
 Part models are GrabCAD / Printables downloads. They and everything derived from them (models, library) stay in the untracked `user_data/` and are not redistributed. The OpenBuilds SCRIBE pen lifter (Printables) is licensed CC BY-NC-ND 4.0.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Part models from OpenBuilds are not included in this repository (they live in the ignored `user_data/`) and stay under their own license.
