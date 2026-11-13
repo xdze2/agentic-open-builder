@@ -92,20 +92,7 @@ try {
   await shoot('viewer-bom.png');
   await page.click('#bom-close'); await wait(500);
 
-  // 3. screenshot mode: frozen view with marks
-  const mot = await screenOf('actuator/motor');
-  await page.click('#pr-shot');
-  await page.waitForSelector('.bar button[data-tool="box"]', { visible: true }); await wait(500);
-  const tool = (t) => page.click(`.bar button[data-tool="${t}"]`);
-  await tool('box'); await page.mouse.move(mot.x - 60, mot.y - 60); await page.mouse.down(); await page.mouse.move(mot.x + 60, mot.y + 60, { steps: 10 }); await page.mouse.up(); await wait(300);
-  await tool('move'); await page.mouse.move(mot.x - 70, mot.y + 10); await page.mouse.down(); await page.mouse.move(mot.x - 330, mot.y + 160, { steps: 12 }); await page.mouse.up(); await wait(300);
-  await tool('text'); await page.mouse.click(mot.x - 380, mot.y + 200); await wait(200); await page.keyboard.type('here?', { delay: 20 }); await page.keyboard.press('Enter'); await wait(300);
-  await tool('select'); await page.mouse.click(W - 450, 200); await page.mouse.move(W - 450, 160);
-  await shoot('viewer-sketch.png');
-  await page.click('.bar button[data-act="cancel"]'); await wait(500);
-  await page.click('#pr-clear'); await wait(300);
-
-  // 4. parametric rail
+  // 3. parametric rail
   await open('parts/vslot-20x60');
   await page.click('[data-view="iso"]'); await wait(800);
   await page.click('[data-zoom="out"]'); await wait(800);
