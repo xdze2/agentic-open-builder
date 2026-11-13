@@ -4,7 +4,7 @@ Design a machine from OpenBuilds parts by talking to an AI agent. Point at parts
 
 The example project is a table-top pen plotter.
 
-![Demo: writing a request with parts clicked in 3D, a box drawn on a screenshot and a library part](docs/demo/demo.gif)
+![Demo: a request written with parts clicked in 3D, then the result: the motor fixed at the rail end with a rotating belt](docs/demo/demo.gif)
 
 ([MP4 version](docs/demo/demo.mp4); re-record with `node tools/demo_anim.mjs --gpu`)
 

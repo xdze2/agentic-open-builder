@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 // Record a demo animation of prompt editing in the viewer by driving the real UI (mouse, typing) in headless Chrome.
 //   node tools/demo_anim.mjs [--out docs/demo] [--url http://host:port] [--chrome /path/to/chrome]
-// Writes demo.webm (raw recording), demo.mp4 and demo.gif. --gpu renders with the GPU (much faster than SwiftShader). Needs ffmpeg and user_data/ with the plotter. Never presses Send.
+// Writes demo.webm (raw recording), demo.mp4 and demo.gif. --gpu renders with the GPU (much faster than SwiftShader). 
+// The story: the request «Move the motor to the end of the rail with a rotating belt» is typed on the BEFORE plotter (X motor riding on the carriage),
+// Send is pressed against a stubbed /api/prompt (nothing is written, nothing reaches Claude Code), then the AFTER plotter is swapped in
+// (the viewer live-reloads it) and the carriage is driven along X to show the belt moving it.
+// user_data/assemblies/plotter.json is the AFTER file (X axis = actuator_belt_2060_500.json); the BEFORE file is the same with the stock actuator_2060_500.json.
+// It is put back as AFTER when the script ends.
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
@@ -14,6 +19,14 @@ const argv = process.argv.slice(2);
 const opt = (n, d) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : d; };
 const out = path.resolve(opt('--out', path.join(root, 'docs/demo')));
 const W = 1280, H = 780;
+const plotterFile = path.join(root, 'user_data/assemblies/plotter.json');
+const AFTER_ASM = 'actuator_belt_2060_500.json', BEFORE_ASM = 'actuator_2060_500.json';
+const after = fs.readFileSync(plotterFile, 'utf8');
+if (!after.includes(AFTER_ASM)) throw new Error(`user_data/assemblies/plotter.json must use ${AFTER_ASM} (the finished design)`);
+const before = after.replace(`"assembly": "${AFTER_ASM}"`, `"assembly": "${BEFORE_ASM}"`);
+if (before === after) throw new Error('could not derive the BEFORE plotter');
+const restore = () => fs.writeFileSync(plotterFile, after);
+process.on('exit', restore);
 
 const freePort = () => new Promise((res, rej) => { const s = net.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); }); s.on('error', rej); });
 let server = null, base = opt('--url');
@@ -51,6 +64,7 @@ const overlay = () => {
   });
 };
 
+fs.writeFileSync(plotterFile, before);
 let recorder = null, recStart = 0;
 // playback speed per section of the recording: [start s, factor]; slow sections (solver rebuilds) are played faster
 const speeds = [[0, 1]];
@@ -66,15 +80,24 @@ try {
   }));
 
   let mouse = { x: W / 2, y: H / 2 };
-  const moveTo = async (x, y, steps = 18) => { await page.mouse.move(x, y, { steps }); mouse = { x, y }; };
-  const click = async (x, y) => { await moveTo(x, y); await wait(150); await page.mouse.click(x, y); await wait(250); };
+  // eased glide in small timed steps (about 60 per second), so the cursor looks smooth in the recording
+  const moveTo = async (x, y, ms = 600) => {
+    const a = mouse, n = Math.max(4, Math.round(ms / 16)), t0 = Date.now();
+    for (let i = 1; i <= n; i++) {
+      const u = i / n, e = u < 0.5 ? 2 * u * u : 1 - 2 * (1 - u) * (1 - u);
+      await page.mouse.move(a.x + (x - a.x) * e, a.y + (y - a.y) * e);
+      const rest = t0 + (ms * i) / n - Date.now(); if (rest > 0) await wait(rest);
+    }
+    mouse = { x, y };
+  };
+  const click = async (x, y) => { await moveTo(x, y); await wait(80); await page.mouse.click(x, y); await wait(150); };
   const clickSel = async (sel) => {
     const b = await page.$eval(sel, (e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
     await click(b.x, b.y);
   };
   const t0 = Date.now();
   const caption = (step, text) => (console.log(((Date.now() - t0) / 1000).toFixed(1) + 's', step, text), page.evaluate((s, t) => { const c = document.getElementById('demo-cap'); c.innerHTML = s ? `<b>${s}</b>${t}` : t; c.style.opacity = t ? 1 : 0; }, step, text));
-  const type = async (s) => { await page.keyboard.type(s, { delay: 38 }); };
+  const type = async (s) => { await page.keyboard.type(s, { delay: 28 }); };
 
   /** Screen points of an instance: its vertices projected to the screen, nearest to its centre first. */
   const pointsOf = (name) => page.evaluate((name) => {
@@ -95,13 +118,13 @@ try {
   const screenOf = async (name) => {
     for (const p of await pointsOf(name)) {
       // ask the viewer's own picking, without a visible mouse move
-      if (await page.evaluate((x, y, n) => window.__viewer.build.hitAt(x, y)?.object.userData.name === n, p.x, p.y, name)) return p;
+      if (await page.evaluate((x, y, n) => { const b = window.__viewer.build, h = b.hitAt(x, y); return h?.object.userData.name === n && b.selOf(h).ref === n; }, p.x, p.y, name)) return p; // the whole instance, not a hole or port
     }
     throw new Error('no visible point on ' + name);
   };
   const clickPart = async (name) => {
     const p = await screenOf(name);
-    await moveTo(p.x, p.y, 22); await wait(450); await page.mouse.click(p.x, p.y); await wait(500);
+    await moveTo(p.x, p.y, 700); await wait(250); await page.mouse.click(p.x, p.y); await wait(300);
   };
   const toScreen = (xyz) => page.evaluate((xyz) => {
     const v = window.__viewer, c = v.controls.target.clone().set(...xyz).project(v.camera), r = document.querySelector('#canvas canvas').getBoundingClientRect();
@@ -133,43 +156,63 @@ try {
   // 1. text + parts clicked in 3D
   await caption('1', 'Type a request, click parts in 3D to insert them');
   await click(W / 2 + 60, H - 45); await page.focus('#pr-box');
-  await type('Move the ');
+  await type('Move the motor ');
   await clickPart('actuator/motor');
-  await type(' to the other end of ');
+  await type(' to the end of ');
   await clickPart('actuator/rail');
-  await type(', and add a belt tensioner in ');
+  await type(' with a rotating belt');
+  await wait(300);
+  await page.evaluate(() => window.__viewer.build.show(null)); // no red selection highlight left on the rail
 
-  // 2. a mark drawn on a frozen screenshot, referenced by its number
-  await caption('2', 'Draw on a screenshot, click the mark’s number to insert it');
-  const end = await toScreen([241.8, -478.4, 35]);
-  await clickSel('#pr-shot');
-  await page.waitForSelector('.bar button[data-tool="box"]', { visible: true }); await wait(500);
-  await clickSel('.bar button[data-tool="box"]');
-  await moveTo(end.x - 55, end.y - 50); await page.mouse.down(); await moveTo(end.x + 55, end.y + 50, 25); await page.mouse.up(); await wait(400);
-  await clickSel('.bar button[data-tool="select"]'); await click(W - 420, 220); // deselect: its corner handle covers the badge
-  await click(end.x - 55, end.y - 50); await wait(400); // number badge: inserts «box 1» at the caret
-
-  // 3. a library part
-  await caption('3', 'Add a library part with its + button');
-  await caretToEnd();
-  await type(' using the ');
-  await page.evaluate(() => document.querySelector('#plist .card[data-id="idler-pulley-plate"]').scrollIntoView({ block: 'center', behavior: 'smooth' }));
-  await wait(900);
-  await clickSel('#plist .card[data-id="idler-pulley-plate"] .ins'); await wait(300);
-  await type('.');
-  await wait(800);
-  await clickSel('.bar button[data-act="capture"]'); await wait(800); // the screenshot joins the prompt (kept in memory until Send)
-
-  // 4. send (hover only: never sends)
-  await caption('4', 'Send to Claude Code: text, parts, 3D points, screenshot');
+  // 2. send: hover, then press. /api/prompt is stubbed: nothing is written and nothing reaches Claude Code.
+  await caption('2', 'Send to Claude Code: text, parts and exact 3D references');
+  await page.setRequestInterception(true);
+  page.on('request', (r) => (r.url().endsWith('/api/prompt') && r.method() === 'POST'
+    ? r.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ dir: 'user_data/prompts/demo' }) })
+    : r.continue()));
   const sendAt = () => page.$eval('#pr-send', (e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
-  for (let k = 0; k < 4; k++) { // hover only: never sends. The status text next to the buttons comes and goes, so re-aim.
-    const p = await sendAt(); if (Math.hypot(p.x - mouse.x, p.y - mouse.y) > 4) await moveTo(p.x, p.y, k ? 8 : 25);
-    await wait(800);
+  for (let k = 0; k < 2; k++) { // the status text next to the buttons comes and goes, so re-aim
+    const p = await sendAt(); if (Math.hypot(p.x - mouse.x, p.y - mouse.y) > 4) await moveTo(p.x, p.y, k ? 150 : 700);
+    await wait(450);
   }
+  await page.mouse.click(mouse.x, mouse.y); await wait(1100);
+
+  // 3. the result: Claude Code has edited the assembly (here: the AFTER file is swapped in), the viewer live-reloads it
+  await caption('3', 'Claude Code edits the assembly: fixed motor, rotating belt');
+  const reloads = await page.evaluate(() => window.__viewer.reloads || 0);
+  speed(5);
+  await wait(300);
+  fs.writeFileSync(plotterFile, after);
+  await page.waitForFunction((n) => (window.__viewer.reloads || 0) > n, { timeout: 120000 }, reloads);
+  await wait(1000);
+  speed(1);
+  await page.evaluate(() => window.__viewer.build.show(null));
+  await page.evaluate(() => { // a view of the whole X axis with the motor at its end and the belt along the rail
+    const { camera, controls } = window.__viewer, d = camera.position.distanceTo(controls.target), dir = [0.5, -0.72, 0.55];
+    controls.target.set(250, -140, 0);
+    camera.position.copy(controls.target).add(controls.target.clone().set(...dir).multiplyScalar(d));
+    camera.zoom = 1.0; camera.updateProjectionMatrix(); camera.lookAt(controls.target); controls.update();
+  });
+  await wait(600);
+
+  // 4. orbit around the assembly: the fixed motor at the rail end and the belt loop
+  await caption('4', 'Result: motor fixed at the rail end, belt drives the carriage');
+  await page.evaluate(() => new Promise((done) => { // 250 degrees about the vertical axis through the target, a little elevation change
+    const { camera, controls } = window.__viewer, c = controls.target.clone(), v0 = camera.position.clone().sub(c);
+    const r = Math.hypot(v0.x, v0.y), a0 = Math.atan2(v0.y, v0.x), z0 = v0.z, t0 = performance.now(), T = 9000;
+    const tick = (now) => {
+      const u = Math.min(1, (now - t0) / T), e = u * u * (3 - 2 * u), a = a0 + e * (250 * Math.PI) / 180;
+      camera.position.set(c.x + r * Math.cos(a), c.y + r * Math.sin(a), c.z + z0 * (1 + 0.35 * Math.sin(e * Math.PI)));
+      camera.lookAt(c); controls.update();
+      u < 1 ? requestAnimationFrame(tick) : done();
+    };
+    requestAnimationFrame(tick);
+  }));
+  await wait(500);
   await recorder.stop(); recorder = null;
 } finally {
   await recorder?.stop().catch(() => {});
+  restore();
   await browser.close().catch(() => {});
   await server?.close();
 }
@@ -180,6 +223,6 @@ const retime = speeds.map(([a, f], k) => `[0:v]trim=start=${a}${k + 1 < speeds.l
   ';' + speeds.map((_, k) => `[s${k}]`).join('') + `concat=n=${speeds.length}:v=1:a=0,fps=25[v]`;
 const ff = (...a) => execFileSync('ffmpeg', ['-y', '-loglevel', 'error', ...a]);
 ff('-i', webm, '-filter_complex', retime, '-map', '[v]', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-crf', '24', '-movflags', '+faststart', mp4);
-ff('-i', mp4, '-vf', 'fps=10,scale=800:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=96:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle', gif);
+ff('-i', mp4, '-vf', 'fps=8,scale=720:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle', gif);
 for (const f of [webm, mp4, gif]) console.log(path.relative(process.cwd(), f), (fs.statSync(f).size / 1e6).toFixed(1), 'MB');
 process.exit(0);
