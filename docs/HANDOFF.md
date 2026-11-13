@@ -150,5 +150,5 @@ Views: iso top bottom front back right left. `--no-axes`, `--no-grid`, `--len <m
 1. Y axis: a carriage on the 20x20 beam (mini V wheel plate + delrin mini V wheels, already in the library), a second joint `y`.
 2. Pen lift: SCRIBE on the carriage (an adapter or router mount), plus a servo and the 9x40 mm linear guide.
 3. `touch` option for mounts/mates (1D: along the slide axis only), only if "until it touches" requests keep coming up. It would replace the hand-computed `end_a_at: -21.65`.
-4. Belts (parametric GT2), motor mount screws, collision check.
+4. Belt clamp hardware on the carriage (clamp points are only marked), motor mount screws, collision check.
 5. Later: SEND button + queue file; Mistral benchmark. STEP models have no structure tree.
