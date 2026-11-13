@@ -8,34 +8,7 @@ Assemblies are JSON files (`user_data/assemblies/*.json`) edited by an AI agent 
 
 ## How it fits together
 
-```mermaid
-flowchart LR
-    user(["User"])
-
-    subgraph front["Front: browser"]
-        viewer["3D viewer<br/>parts browser, structure, joints"]
-        prompt["Prompt editor<br/>chips, screenshots, drawings"]
-    end
-
-    subgraph back["Backend: Node"]
-        dev["Vite dev server<br/>/api/shot, /api/prompt"]
-        tools["tools/<br/>solve.mjs, snap.mjs"]
-        data[("user_data/<br/>assemblies JSON, library, prompts")]
-    end
-
-    agent["Claude Code agent"]
-
-    user -- "looks, clicks parts" --> viewer
-    viewer -- "inserts picked parts" --> prompt
-    prompt -- "Send" --> dev
-    dev -- "writes prompt.md + PNGs" --> data
-    user -- "pastes Read …/prompt.md" --> agent
-    agent -- "reads prompt, edits assembly JSON" --> data
-    agent -- "runs solver, snapshots" --> tools
-    tools -- "reads" --> data
-    data -- "live reload" --> dev
-    dev -- "serves models + assemblies" --> viewer
-```
+![User, front (viewer and prompt editor), backend (dev server, tools, user_data) and the Claude Code agent](docs/architecture.svg)
 
 ## Quick start
 
