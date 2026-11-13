@@ -30,7 +30,7 @@ let res;
 try { res = await solve(asm, nodeLoader, { state, file: path.basename(file) }); }
 catch (e) { if (e instanceof AsmError) { console.error('ERROR: ' + e.message); process.exit(1); } throw e; }
 
-if (args.includes('--json')) { console.log(JSON.stringify({ state: res.state, joints: res.joints, mounts: res.mounts, belts: res.belts, bom: res.bom, instances: res.instances.map((i) => ({ name: i.name, slug: i.slug, M: i.M })) })); process.exit(0); }
+if (args.includes('--json')) { console.log(JSON.stringify({ state: res.state, joints: res.joints, mounts: res.mounts, belts: res.belts, bom: res.bom, instances: res.instances.map((i) => ({ name: i.name, slug: i.slug, group: i.group, ...(i.fastener ? { fastener: true } : {}), M: i.M })) })); process.exit(0); }
 const f = (v) => v.toFixed(2).padStart(8);
 console.log(`${path.basename(file)}: ${res.instances.length} instances`);
 console.log(`state: ${JSON.stringify(res.state)}`);

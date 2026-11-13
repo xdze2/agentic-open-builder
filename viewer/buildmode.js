@@ -236,19 +236,25 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
   function snapshotTree() { if (treeEl.dataset.filtering) return; for (const [k, it] of items) if (it.dataset.group) expState.set(k, it.expanded); }
   function buildTree() {
     items.clear(); groupNames.clear();
+    // folders = inst.group (from "group" in the assembly JSON, plus the sub-assembly name); generated fasteners go in a collapsed "Fasteners" folder of their group
     const mountNames = new Set(res.mounts.map((m) => m.name));
-    const root = { key: 'g:root', label: file.replace(/\.json$/, ''), kids: [], root: true }, fast = { key: 'g:fasteners', label: 'Fasteners', kids: [], dflt: false, note: 'generated screws and tee nuts' };
-    const groups = new Map([['', root]]);
+    const root = { key: 'g:root', label: file.replace(/\.json$/, ''), kids: [], root: true };
+    const groups = new Map([['', root]]), fasts = new Map();
     const groupAt = (path) => { // path of segments
       const k = path.join('/'); if (groups.has(k)) return groups.get(k);
       const parent = groupAt(path.slice(0, -1)), g = { key: 'g:' + k, label: path[path.length - 1], kids: [] };
       groups.set(k, g); parent.kids.push(g); return g;
     };
     for (const inst of res.instances) {
-      const seg = inst.name.split('/'), dir = seg.slice(0, -1).join('/');
-      (mountNames.has(dir) ? fast : groupAt(seg.slice(0, -1))).kids.push({ key: inst.name, inst, label: seg[seg.length - 1] });
+      const seg = inst.name.split('/'), path = inst.group || seg.slice(0, -1);
+      const isFast = inst.fastener || mountNames.has(seg.slice(0, -1).join('/'));
+      const leaf = { key: inst.name, inst, label: isFast ? seg.slice(-2).join('/') : seg[seg.length - 1] };
+      if (!isFast) { groupAt(path).kids.push(leaf); continue; }
+      const k = path.join('/');
+      if (!fasts.has(k)) fasts.set(k, { key: 'g:' + k + '//fasteners', label: 'Fasteners', kids: [], dflt: false, note: 'generated screws and tee nuts', parent: groupAt(path) });
+      fasts.get(k).kids.push(leaf);
     }
-    if (fast.kids.length) root.kids.push(fast);
+    for (const f of fasts.values()) f.parent.kids.push(f);
     const names = (n) => (n.inst ? [n.key] : n.kids.flatMap(names));
     const html = (n) => {
       if (n.inst) {

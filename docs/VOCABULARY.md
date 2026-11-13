@@ -26,6 +26,8 @@ A part entry is one of:
 - `{"part": "vslot-20x20", "length": 500}`: a parametric V-slot cut to length (`vslot-20x20`, `vslot-20x40`, `vslot-20x60`). It shows up in the BOM as a cut length.
 - `{"assembly": "actuator_2060_500.json"}`: a sub-assembly (a file in `user_data/assemblies/`); it moves as one rigid group.
 
+**Groups (structure tree only).** Any part, mount or belt can carry `"group": "Y axis/carriage/wheel 1"` (`/` nests folders). Groups are sorted by function (X axis, Y axis, then carriage / drive / wheel N ...). They only set the folders of the viewer's Structure tree: refs, mates and the BOM ignore them, so you can move a piece to another group without breaking anything. A sub-assembly's pieces sit under `<its group>/<sub-assembly name>/<group inside the sub-assembly file>`. A mount's generated screws and nuts go in a collapsed "Fasteners" folder inside the mount's group. Give every new piece a group.
+
 Types: `rail`, `plate`, `wheel`, `motor`, `pulley`, `screw`, `nut`, `tee_nut`, `spacer`, `shim`, `bearing`, `block`, `belt` (parametric source part from `lib/belt.js`, routed by `belts`).
 
 ## 3. Ports, faces, positions
