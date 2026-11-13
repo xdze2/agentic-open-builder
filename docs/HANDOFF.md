@@ -17,7 +17,7 @@ Build an assembled 3D model of a pen plotter made from OpenBuilds parts, before 
   
   The first real test ("move the beam until the mount") worked; the user found it "works well, and simple".
 - Agent = Claude Code only, no API. Mistral may come later, which would need a benchmark: plain-text requests + expected `solve.mjs` results.
-- Prompt transport: **Send** POSTs to the dev server (`/api/prompt`, `/api/shot` in vite.config.js), which writes one folder per prompt in `user_data/prompts/` (prompt.md + prompt.json + PNGs); only a short `Read …` line goes through the clipboard. Images stay PNG files on disk (not base64) so the agent can see them. **Copy text** keeps the old clipboard-only path. Next step planned: drawing on the view (arrows, boxes, numbered pins anchored to 3D points) before capture.
+- Prompt transport: **Send** POSTs to the dev server (`/api/prompt`, `/api/shot` in vite.config.js), which writes one folder per prompt in `user_data/prompts/` (prompt.md + prompt.json + PNGs); only a short `Read …` line goes through the clipboard. Images stay PNG files on disk (not base64) so the agent can see them. **Copy text** keeps the old clipboard-only path. The camera button freezes the view for drawing (viewer/sketch.js, SVG marks: select/edit, point at, move arrow, box, freehand, text); the prompt stays usable while drawing and a mark badge click inserts a chip for that mark; each mark is listed in prompt.md with the parts and 3D points under it.
 - The user likes big work delegated to subagents to save tokens. Commit only when asked.
 
 ## Current design (`user_data/assemblies/plotter.json`)
@@ -44,7 +44,7 @@ tools/verify.mjs       checks converted GLBs against their catalog
 tools/build_library.mjs  npm run library: user_data/models/ -> user_data/library/ (unique re-centred parts + nema17-40), ports, port validation
 tools/solve.mjs        CLI: node tools/solve.mjs <file> [--positions] [--state x=120] [--json]
 tools/snap.mjs         headless snapshots + thumbnails (see Snapshots)
-viewer/                Vite + three.js + Shoelace: index.html (layout, light CSS), main.js (browser, parts/models, snap API), stage.js (ortho camera, lights/shadows, grid, zoom), buildmode.js (assembly view), prompt.js (prompt box), vslot.js, vite.config.js
+viewer/                Vite + three.js + Shoelace: index.html (layout, light CSS), main.js (browser, parts/models, snap API), stage.js (ortho camera, lights/shadows, grid, zoom), buildmode.js (assembly view), prompt.js (prompt box), sketch.js (draw on the frozen view for screenshots), vslot.js, vite.config.js
 
 user_data/             PRIVATE, gitignored as a whole (CAD licences; personal designs)
   inbox/               raw downloads (zips)

@@ -6,9 +6,11 @@
 //
 // Chip = <span class="chip" contenteditable="false" data-ref="actuator/plate.edge_+y" data-label="plate › edge +y">.
 // A "selection" is {ref, label}. ref = "<instance>" or "<instance>.<port>" (exactly what goes into the JSON),
-// or "lib:<slug>" / "lib:<slug>.<port>" for a library part (a piece to choose, not an instance yet).
+// or "lib:<slug>" / "lib:<slug>.<port>" for a library part (a piece to choose, not an instance yet),
+// or "img:<key>#<n>" for mark n drawn on a screenshot (key = its sketch session; the drawing may still be open).
 import * as m4 from '../lib/mat.js';
 import { findPort, edgePorts } from '../lib/assembly.js';
+import { COLORS, MARK_WORDS } from './sketch.js';
 
 const KEY = 'ob_prompt_draft_v1', POS_KEY = 'ob_prompt_pos_v1', RECENT_N = 5;
 const f1 = (v) => +(+v).toFixed(1);
@@ -16,9 +18,10 @@ const vec = (v) => '[' + v.map(f1).join(', ') + ']';
 const WORDS = [[[1, 0, 0], 'right'], [[-1, 0, 0], 'left'], [[0, 1, 0], 'back'], [[0, -1, 0], 'front'], [[0, 0, 1], 'up'], [[0, 0, -1], 'down']];
 const dirWord = (v) => { const w = WORDS.find(([d]) => d.every((c, k) => Math.abs(c - v[k]) < 0.01)); return w ? ` (${w[1]})` : ''; };
 
-const ICONS = { lib: '\u29C9', libport: '\u2295', part: '\u25FC', face: '\u25B1', edge: '\u2571', hole: '\u25CB', port: '\u2295' };
+const ICONS = { mark: '\u270E', lib: '\u29C9', libport: '\u2295', part: '\u25FC', face: '\u25B1', edge: '\u2571', hole: '\u25CB', port: '\u2295' };
 /** kind of a ref from its text alone (the hole / face distinction is by naming convention, see findPort). */
 export function kindOf(ref) {
+  if (ref.startsWith('img:')) return 'mark';
   if (ref.startsWith('lib:')) return ref.includes('.', 4) ? 'libport' : 'lib';
   const dot = ref.indexOf('.');
   if (dot < 0) return 'part';
@@ -31,8 +34,8 @@ export function kindOf(ref) {
 
 // hooks (all optional): resolve(ref) -> {color} | null (null = ref no longer exists), hover(ref|null), focus(ref),
 //   describe(ref) -> string | undefined (details for refs the assembly does not know, e.g. lib:), library() -> [{ref, label, show}]
-//   capture() -> Promise<{blob, w, h, meta, line}> (screenshot of the view: meta = camera etc. for prompt.json, line = its description),
-//   view(meta) (put the camera back where a screenshot was taken)
+//   capture() -> Promise<{blob, w, h, meta, line} | null> (screenshot of the view, null = cancelled: meta = camera etc. for prompt.json, line = its description),
+//   view(meta) (put the camera back where a screenshot was taken), pendingSketch() -> {key, marks} | null (drawing open)
 // getContext() -> first line of the copied prompt (what is on screen)
 export function createPrompt({ $, getResult, getContext, hooks = {} }) {
   const box = $('pr-box'), recentEl = $('pr-recent'), pop = $('pr-pop'), status = $('pr-status');
@@ -42,6 +45,17 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
   let comp = null;       // @-completion state {items, idx}
   let shots = [];        // screenshots of the draft: {id, w, h, meta, line}
   const shotsEl = $('pr-shots');
+  /** img:<key>#<n> -> {color, idx (image number), mark, pending, title} ; null = the drawing was cancelled / the image deleted / the mark erased */
+  function markOf(ref) {
+    const m = /^img:([a-z0-9]+)#(\d+)$/.exec(ref); if (!m) return null;
+    const [, key, n] = m, i = shots.findIndex((s) => s.meta?.key === key), p = hooks.pendingSketch?.();
+    const list = i >= 0 ? shots[i].meta.marks : p?.key === key ? p.marks : null, mk = list?.find((x) => x.n === +n);
+    if (!mk) return null;
+    const idx = i >= 0 ? i + 1 : shots.length + 1, pending = i < 0;
+    return { color: (COLORS.find(([c]) => c === mk.color) || COLORS[0])[1], idx, mark: mk, pending, title: `image ${idx}${pending ? ' (drawing, not captured yet)' : ''}, mark ${n}: ${mk.color} ${MARK_WORDS[mk.kind]}` };
+  }
+  /** chip for mark mk of the drawing in progress (key) */
+  function insertMark(key, mk) { insertChip({ ref: `img:${key}#${mk.n}`, label: `${MARK_WORDS[mk.kind]} ${mk.n}` }); }
 
   // ---- caret handling ----
   const inBox = (n) => n && box.contains(n);
@@ -71,11 +85,11 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
 
   // ---- chips ----
   function decorate(c, sel) {
-    const info = hooks.resolve ? hooks.resolve(sel.ref) : undefined; // undefined = unknown yet (not solved)
+    const info = sel.ref.startsWith('img:') ? markOf(sel.ref) : hooks.resolve ? hooks.resolve(sel.ref) : undefined; // undefined = unknown yet (not solved)
     const stale = info === null;
     c.classList.toggle('stale', stale);
     if (info && info.color) c.style.setProperty('--c', info.color); else c.style.removeProperty('--c');
-    c.title = stale ? `${sel.ref}\nWARNING: this reference is not in the current assembly (it was edited or renamed)` : sel.ref;
+    c.title = info?.title || (stale ? `${sel.ref}\nWARNING: this reference is not in the current assembly (it was edited or renamed)` : sel.ref);
   }
   function makeChip(sel, el, tag) {
     const c = document.createElement(tag || 'span');
@@ -201,23 +215,31 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
       shotsEl.insertBefore(d, $('pr-shot'));
     });
   }
-  async function addShot() {
-    if (!hooks.capture) return;
+  let adding = null; // a capture being drawn / encoded / uploaded: Send waits for it
+  function addShot() {
+    if (!hooks.capture || adding) return adding; // already drawing
+    adding = takeShot().finally(() => { adding = null; });
+    return adding;
+  }
+  async function takeShot() {
     try {
-      const { blob, w, h, meta, line } = await hooks.capture();
+      const shot = await hooks.capture(); // null: cancelled in sketch mode
+      if (!shot) return;
+      const { blob, w, h, meta, line } = shot;
       const r = await fetch('api/shot', { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: blob });
       if (!r.ok) throw new Error(r.status === 404 ? 'needs the dev server (npm run dev)' : (await r.json().catch(() => ({}))).error || r.statusText);
       shots.push({ id: (await r.json()).id, w, h, meta, line });
-      persist(); renderShots(); say(`screenshot ${shots.length} added`);
+      persist(); renderShots(); refresh(); say(`screenshot ${shots.length} added`);
     } catch (e) { say('screenshot failed: ' + e.message, true); }
   }
   function dropDraft(sh) { fetch('api/shot/' + sh.id, { method: 'DELETE' }).catch(() => {}); }
-  function removeShot(sh) { shots = shots.filter((x) => x !== sh); dropDraft(sh); persist(); renderShots(); }
+  function removeShot(sh) { shots = shots.filter((x) => x !== sh); dropDraft(sh); persist(); renderShots(); refresh(); }
   $('pr-shot').addEventListener('click', addShot);
 
   // ---- reference details for the copied block ----
   function instOf(path) { return getResult()?.instances.find((i) => i.name === path); }
   function describeRef(ref) {
+    if (ref.startsWith('img:')) { const r = markOf(ref); return r ? `mark ${r.mark.n} on image ${r.idx} (${r.mark.color} ${MARK_WORDS[r.mark.kind]}, described under Screenshots)` : '(this mark no longer exists)'; }
     const ext = hooks.describe?.(ref);
     if (ext !== undefined) return ext;
     const res = getResult();
@@ -268,6 +290,8 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
     return text;
   }
   async function sendPrompt() {
+    if (hooks.pendingSketch?.()) return say('capture or cancel the drawing first', true);
+    if (adding) { say('adding the screenshot…'); await adding; }
     const md = buildText(shots.length ? '{{IMAGES}}' : null);
     const json = { context: getContext(), request: tokens(), created: new Date().toISOString() };
     try {
@@ -284,8 +308,8 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
   }
   $('pr-send').addEventListener('click', sendPrompt);
   $('pr-copy').addEventListener('click', copy);
-  $('pr-clear').addEventListener('click', () => { box.textContent = ''; saved = null; shots.forEach(dropDraft); shots = []; renderShots(); changed(); box.focus(); });
-  renderShots();
+  $('pr-clear').addEventListener('click', () => { box.textContent = ''; saved = null; shots.forEach(dropDraft); shots = []; renderShots(); changed(); refresh(); box.focus(); });
+  renderShots(); refresh(); // mark chips restored from the draft resolve against the shots loaded with it
 
   // ---- @ completion ----
   const closePop = () => { comp = null; pop.hidden = true; };
@@ -371,7 +395,7 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
   const ro = new ResizeObserver(place); ro.observe(host); ro.observe(dock);
   place();
 
-  return { pick, refresh, copy, send: sendPrompt, addShot, get shots() { return shots; }, buildText, tokens, insertChip, get armed() { return armed; } };
+  return { pick, refresh, insertMark, copy, send: sendPrompt, addShot, get shots() { return shots; }, buildText, tokens, insertChip, get armed() { return armed; } };
 }
 
 export const short = (name) => name.split('/').pop().replace(/_/g, ' ');

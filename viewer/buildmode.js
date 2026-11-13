@@ -343,5 +343,5 @@ const edgeTol = () => Math.max(4, Math.min(10, 6 / camera.zoom)), portTol = () =
   };
   if (import.meta.hot) import.meta.hot.on('assemblies-changed', (d) => { reload().catch(console.error); });
 
-  return { resolveRef: (ref) => (active ? resolveRef(ref) : undefined), hover, focus, state: () => res?.state, file: () => file, group, bomText: () => `Bill of materials: ${file} (${res?.instances.length} instances)\n` + bomLines.join('\n'), enter, leave, hitAt, show, isActive: () => active, setState: (s) => { Object.assign(overrides, s); return rebuild(true); }, get result() { return res; } };
+  return { resolveRef: (ref) => (active ? resolveRef(ref) : undefined), hover, focus, state: () => res?.state, file: () => file, group, bomText: () => `Bill of materials: ${file} (${res?.instances.length} instances)\n` + bomLines.join('\n'), enter, leave, hitAt, selOf: (h) => describeHit(h).sel, show, isActive: () => active, setState: (s) => { Object.assign(overrides, s); return rebuild(true); }, get result() { return res; } };
 }

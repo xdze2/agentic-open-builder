@@ -23,6 +23,7 @@ import modelNames from 'virtual:models';
 import { PROFILES, railGeometry, vslotPart } from './vslot.js';
 import { createBuild } from './buildmode.js';
 import { createPrompt, portWords } from './prompt.js';
+import { createSketch, describeMarks } from './sketch.js';
 import { createStage, VIEWS, GRID_MINOR, GRID_MAJOR } from './stage.js';
 
 setBasePath('./shoelace'); // icons: <base>/shoelace/assets/icons (served / copied by vite.config.js)
@@ -262,20 +263,49 @@ function promptContext() {
   if (mode === 'model' && current) return `viewing STEP model: user_data/models/${current.id}`;
   return 'no item open';
 }
-// ---- screenshots for the prompt: the WebGL canvas, downscaled to <= SHOT_MAX px, + the camera to describe / restore it ----
+// ---- screenshots for the prompt: freeze the view, draw on it (sketch.js), capture <= SHOT_MAX px + the camera to describe / restore it ----
 const SHOT_MAX = 1600;
 const viewName = (d) => Object.entries(VIEWS).find(([, v]) => new THREE.Vector3(...v).normalize().dot(d) > 0.999)?.[0];
+const sketch = createSketch({ host: $('stage'), pickAt, onRef: (mk) => prompt.insertMark(sketch.pending().key, mk), onChange: () => prompt.refresh() });
+/** what is under a screen point: {hit, sel?: {ref, label}, point: [x,y,z]}. On a miss, the point is on the plane facing the camera
+ *  through `through` (e.g. the other end of an arrow) or through the orbit target. */
+function pickAt(cx, cy, through) {
+  const ray = new THREE.Raycaster(); ray.setFromCamera(ndc(cx, cy), camera);
+  let h = null, sel = null;
+  if (mode === 'build' && build) { h = build.hitAt(cx, cy); if (h) sel = build.selOf(h); }
+  else if (mode === 'part' && partGroup && curPart) { h = ray.intersectObject(partGroup.userData.mesh, true)[0]; if (h) sel = partSel(h.point); }
+  else if (mode === 'model') { h = ray.intersectObjects(parts.filter((p) => p.visible), false)[0]; if (h) sel = { label: h.object.name.replace(/_/g, ' ') }; }
+  if (h) return { hit: true, sel, point: h.point.toArray() };
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), through ? new THREE.Vector3(...through) : controls.target);
+  return { hit: false, point: (ray.ray.intersectPlane(plane, new THREE.Vector3()) || controls.target).toArray() };
+}
 async function captureView() {
   renderer.render(scene, camera); // read back in the same task as the render (no preserveDrawingBuffer needed)
-  const src = renderer.domElement, k = Math.min(1, SHOT_MAX / Math.max(src.width, src.height));
-  const c = document.createElement('canvas'); c.width = Math.round(src.width * k); c.height = Math.round(src.height * k);
-  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  const src = renderer.domElement, frame = document.createElement('canvas');
+  frame.width = src.width; frame.height = src.height; frame.getContext('2d').drawImage(src, 0, 0);
+  const t = controls.target.clone(), dir = camera.position.clone().sub(t).normalize(), up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+  const zoom = camera.zoom, context = promptContext(), hash = location.hash;
+  controls.enabled = false; // frozen: the marks are anchored with this camera
+  let drawn; try { drawn = await sketch.open(frame); } finally { controls.enabled = true; }
+  if (!drawn) return null;
+  const k = Math.min(1, SHOT_MAX / Math.max(frame.width, frame.height));
+  const c = document.createElement('canvas'); c.width = Math.round(frame.width * k); c.height = Math.round(frame.height * k);
+  c.getContext('2d').drawImage(drawn.canvas, 0, 0, c.width, c.height);
   const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
-  const t = controls.target, dir = camera.position.clone().sub(t).normalize(), up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
-  const mmPerPx = src.width / c.width / (camera.zoom * renderer.getPixelRatio()); // ortho: camera.zoom = CSS px per mm
+  const mmPerPx = 1 / k / (zoom * renderer.getPixelRatio()); // ortho: camera.zoom = CSS px per mm
   const r3 = (v) => v.toArray().map((x) => +x.toFixed(3)), name = viewName(dir);
-  const meta = { context: promptContext(), hash: location.hash, camera: { target: r3(t), dir: r3(dir), up: r3(up), zoom: +camera.zoom.toFixed(5), view: name || null }, mm_per_px: +mmPerPx.toFixed(4) };
-  const line = `${c.width}×${c.height} px, ${meta.context.split('   ')[0]}; looking from ${name ? name + ' ' : ''}[${r3(dir).map((x) => x.toFixed(2)).join(', ')}] at [${r3(t).map((x) => x.toFixed(1)).join(', ')}] mm (image centre), ${mmPerPx.toFixed(3)} mm per px`;
+  const px = (p) => p.map((v) => Math.round(v * k));
+  const anchorOf = (h) => h && { hit: h.hit, ref: h.sel?.ref, label: h.sel?.label, point: h.point.map((v) => +v.toFixed(2)) };
+  const marks = drawn.marks.map((m) => ({
+    n: m.n, kind: m.kind, color: m.color, ...(m.text ? { text: m.text } : {}),
+    px: m.pts ? m.pts.map(px) : [m.a, m.b].filter(Boolean).map(px),
+    ...(m.from ? { from: anchorOf(m.from), to: anchorOf(m.to) } : {}), ...(m.at ? { at: anchorOf(m.at) } : {}), ...(m.centre ? { centre: anchorOf(m.centre) } : {}),
+    ...(m.covers || m.touches ? { parts: (m.covers || m.touches).map((s) => ({ ref: s.ref, label: s.label })) } : {}),
+  }));
+  const meta = { key: drawn.key, context, hash, camera: { target: r3(t), dir: r3(dir), up: r3(up), zoom: +zoom.toFixed(5), view: name || null }, mm_per_px: +mmPerPx.toFixed(4), marks };
+  const lines = describeMarks(drawn.marks, k);
+  const line = `${c.width}×${c.height} px, ${context.split('   ')[0]}; looking from ${name ? name + ' ' : ''}[${r3(dir).map((x) => x.toFixed(2)).join(', ')}] at [${r3(t).map((x) => x.toFixed(1)).join(', ')}] mm (image centre), ${mmPerPx.toFixed(3)} mm per px` +
+    (lines.length ? `\n  Marks drawn on it (3D points in mm, world frame):\n${lines.map((l) => '    ' + l).join('\n')}` : '');
   return { blob, w: c.width, h: c.height, meta, line };
 }
 function restoreView(meta) {
@@ -293,6 +323,7 @@ const prompt = createPrompt({
   hooks: {
     capture: captureView,
     view: restoreView,
+    pendingSketch: () => sketch.pending(),
     resolve: (ref) => {
       if (!ref.startsWith('lib:')) return build ? build.resolveRef(ref) : undefined;
       if (!libIndex) return undefined;
