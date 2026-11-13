@@ -1,9 +1,5 @@
-parts/
-models/
 node_modules/
 viewer/dist
-snaps/
-models/*/thumb.png
 
-# Restricted-license parts (Printables, CC BY-NC-ND 4.0): local only, never commit
-library/openbuilds-scribe-*/
+# Private data: CAD downloads, converted models, built library, assemblies, snapshots (see lib/paths.js)
+user_data/

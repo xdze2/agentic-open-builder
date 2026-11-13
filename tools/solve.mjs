@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Usage: node tools/solve.mjs <assembly.json> [--state x=120,y=3] [--json] [--positions]
-// Solves an assembly (lib/assembly.js) against library/ and prints the BOM, joints, mounts and (with --positions) every pose.
-// If the file has "compare": {model, anchor}, instance poses are compared with that models/<model> STEP-derived catalog.
+// Solves an assembly (lib/assembly.js) against user_data/library/ and prints the BOM, joints, mounts and (with --positions) every pose.
+// If the file has "compare": {model, anchor}, instance poses are compared with that user_data/models/<model> STEP-derived catalog.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { LIBRARY, MODELS } from '../lib/paths.js';
 import { solve, AsmError } from '../lib/assembly.js';
 import * as m4 from '../lib/mat.js';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith('--') && !/^\w+=/.test(a));
 if (!file) { console.error('usage: node tools/solve.mjs <assembly.json> [--state x=120] [--positions] [--json]'); process.exit(2); }
@@ -20,8 +20,8 @@ const asmDir = path.dirname(path.resolve(file));
 const readJson = (f) => JSON.parse(fs.readFileSync(f, 'utf8'));
 const cache = new Map();
 export const nodeLoader = {
-  index: async () => readJson(path.join(root, 'library/index.json')),
-  part: async (slug) => { if (!cache.has(slug)) cache.set(slug, readJson(path.join(root, 'library', slug, 'part.json'))); return cache.get(slug); },
+  index: async () => readJson(path.join(LIBRARY, 'index.json')),
+  part: async (slug) => { if (!cache.has(slug)) cache.set(slug, readJson(path.join(LIBRARY, slug, 'part.json'))); return cache.get(slug); },
   assembly: async (f) => readJson(path.join(asmDir, f)),
 };
 
@@ -51,7 +51,7 @@ if (args.includes('--positions')) {
 // ---- comparison with the STEP-derived model ----
 if (asm.compare) {
   const { model, anchor } = asm.compare;
-  const cat = readJson(path.join(root, 'models', model, 'catalog.json')).solids;
+  const cat = readJson(path.join(MODELS, model, 'catalog.json')).solids;
   const A = res.instances.find((i) => i.name === anchor);
   const T = A.def.transform;
   // world <- STEP:  p_world = M_anchor * R (p_step - origin)
@@ -86,7 +86,7 @@ if (asm.compare) {
   }
   rows.sort((a, b) => (b.dev || 0) - (a.dev || 0));
   const solids = cat.filter((s) => !used.has(s.index) && !/Nema 17 Stepper/.test(s.name));
-  console.log(`\nCOMPARISON with models/${model} (anchor ${anchor}); deviation = max abs difference of the world AABB faces, mm`);
+  console.log(`\nCOMPARISON with user_data/models/${model} (anchor ${anchor}); deviation = max abs difference of the world AABB faces, mm`);
   for (const r of rows) console.log(`  ${r.name.padEnd(24)} ${Number.isNaN(r.dev) ? '   n/a' : r.dev.toFixed(3).padStart(7)}  ${r.step}${r.bad ? '  <-- MISMATCH' : ''}`);
   const good = rows.filter((r) => !r.bad);
   console.log(`  max deviation over ${good.length} matched instances: ${Math.max(...good.map((r) => r.dev)).toFixed(3)} mm; mean ${(good.reduce((a, r) => a + r.dev, 0) / good.length).toFixed(3)} mm`);

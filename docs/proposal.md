@@ -84,7 +84,7 @@ Vite + three.js, no backend.
 - The Y rail is cantilevered on the X carriage: check sag/stiffness at the far end.
 - Pen lift mechanism (typically a servo) is not specified yet.
 
-## 6. Available STEP sources (`parts/`)
+## 6. Available STEP sources (`user_data/parts/`)
 
 Two GrabCAD STEP files (mm, 2019):
 

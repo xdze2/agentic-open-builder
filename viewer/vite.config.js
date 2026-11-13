@@ -1,12 +1,13 @@
-// Serves ../models at /models (dev middleware) and copies it to dist on build.
+// Serves user_data/{models,library,assemblies} (see lib/paths.js) in dev and copies them to dist on build.
 // Also exposes the folder list as the virtual module "virtual:models".
 import { defineConfig } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MODELS, LIBRARY, ASSEMBLIES } from '../lib/paths.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const modelsDir = path.resolve(root, '../models');
+const modelsDir = MODELS;
 const listModels = () =>
   fs.existsSync(modelsDir)
     ? fs.readdirSync(modelsDir, { withFileTypes: true })
@@ -14,8 +15,8 @@ const listModels = () =>
         .map((d) => d.name).sort()
     : [];
 
-const libDir = path.resolve(root, '../library');
-const asmDir = path.resolve(root, '../assemblies');
+const libDir = LIBRARY;
+const asmDir = ASSEMBLIES;
 const listAsm = () => (fs.existsSync(asmDir) ? fs.readdirSync(asmDir).filter((f) => f.endsWith('.json') && !f.startsWith('_')).sort() : []);
 const MIME = { '.glb': 'model/gltf-binary', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
 // Shoelace icons are fetched at runtime from <base>/shoelace/assets/icons (see setBasePath in main.js)

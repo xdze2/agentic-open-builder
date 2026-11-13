@@ -260,9 +260,9 @@ const prompt = createPrompt({
   $,
   getResult: () => (mode === 'build' ? build?.result : null),
   getContext: () => {
-    if (mode === 'build' && build) return `assembly: assemblies/${build.file()}   state: ${JSON.stringify(build.state() || {})}`;
-    if (mode === 'part' && curSlug) return isProfile(curSlug) ? `viewing parametric rail V-Slot ${curSlug.slice(6)} (${railLen} mm)` : `viewing library part: library/${curSlug}/part.json`;
-    if (mode === 'model' && current) return `viewing STEP model: models/${current.id}`;
+    if (mode === 'build' && build) return `assembly: user_data/assemblies/${build.file()}   state: ${JSON.stringify(build.state() || {})}`;
+    if (mode === 'part' && curSlug) return isProfile(curSlug) ? `viewing parametric rail V-Slot ${curSlug.slice(6)} (${railLen} mm)` : `viewing library part: user_data/library/${curSlug}/part.json`;
+    if (mode === 'model' && current) return `viewing STEP model: user_data/models/${current.id}`;
     return 'no item open';
   },
   hooks: {
@@ -284,7 +284,7 @@ const prompt = createPrompt({
       if (isProfile(slug)) return `parametric V-Slot ${slug.slice(6)} rail (any length)${port ? `, port ${port}` : ''}`;
       const lp = libPart(slug);
       if (!lp) return '(not in the library)';
-      let s = `library part ${slug} (library/${slug}/part.json), type ${lp.type}, ${dimsText(lp.dims)}`;
+      let s = `library part ${slug} (user_data/library/${slug}/part.json), type ${lp.type}, ${dimsText(lp.dims)}`;
       const q = port && partDefs.get(slug)?.ports.find((x) => x.name === port);
       if (q) s += `; port ${port} at ${JSON.stringify(q.origin.map(f1))}, normal ${JSON.stringify(q.z.map(f1))} (part frame)`;
       else if (port) s += `; port ${port}`;
@@ -337,21 +337,21 @@ function bindList(listId, searchId, onPick) {
 const isStepRail = (p) => p.type === 'rail' && /^v-slot-/.test(p.slug);
 async function initLists() {
   libIndex = await fetch('library/index.json').then((r) => r.json()).catch(() => null);
-  if (!libIndex) $('plist').textContent = 'No library/. Run: npm run library';
+  if (!libIndex) $('plist').textContent = 'No user_data/library/. Run: npm run library';
   else {
     const groups = {};
     groups.rail = Object.keys(PROFILES).map((k) => card('part', 'vslot-' + k, `V-Slot ${k}`, `${PROFILES[k].map((n) => n * 20).join(' × ')} mm profile, any length`, `library/_thumbs/vslot-${k}.png`, 'rail parametric profile v-slot extrusion'));
     for (const p of libIndex.parts) if (!isStepRail(p)) (groups[p.type] ||= []).push(card('part', p.slug, p.name, dimsText(p.dims), `library/${p.slug}/thumb.png`, p.type));
     $('plist').innerHTML = Object.entries(groups).map(([t, c]) => group('parts', t, c)).join('');
   }
-  $('mlist').innerHTML = modelNames.length ? group('models', 'converted STEP models', modelNames.map((n) => card('model', n, n.replace(/_/g, ' '), 'STEP', `models/${n}/thumb.png`))) : 'No models found in models/.';
+  $('mlist').innerHTML = modelNames.length ? group('models', 'converted STEP models', modelNames.map((n) => card('model', n, n.replace(/_/g, ' '), 'STEP', `models/${n}/thumb.png`))) : 'No models found in user_data/models/.';
   applyGroups('plist'); applyGroups('mlist');
   prompt.refresh();
   await listAssemblies();
 }
 async function listAssemblies() {
   const files = await fetch('assemblies/_list.json', { cache: 'no-store' }).then((r) => r.json()).catch(() => []);
-  $('alist').innerHTML = files.length ? group('asm', 'assembly files', files.map((f) => card('asm', f, f.replace(/\.json$/, ''), 'assembly JSON', `assemblies/_thumbs/${f.replace(/\.json$/, '')}.png`))) : 'No assemblies/*.json';
+  $('alist').innerHTML = files.length ? group('asm', 'assembly files', files.map((f) => card('asm', f, f.replace(/\.json$/, ''), 'assembly JSON', `assemblies/_thumbs/${f.replace(/\.json$/, '')}.png`))) : 'No user_data/assemblies/*.json';
   applyGroups('alist', $('q-asm').value.trim().toLowerCase());
   markActive();
   return files;

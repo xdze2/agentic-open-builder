@@ -1,6 +1,8 @@
 // Converts all known inputs. Usage: node tools/convert_all.mjs
 import { spawnSync } from 'node:child_process';
-const A = 'parts/';
+import path from 'node:path';
+import { ROOT, PARTS, MODELS } from '../lib/paths.js';
+// sources are relative to user_data/parts/, outputs go to user_data/models/<name>
 const jobs = [
   ['nema-17-stepper-motor-21.snapshot.1/Nema 17 Stepper Motor.step', 'nema17'],
   ['v-slot-belt-and-pinion-actuator-500mm-1.snapshot.1/V Slot Belt and Pinion Actuator 500mm.stp', 'actuator_2060_500'],
@@ -20,13 +22,18 @@ const jobs = [
   ['v-slot-20x20x500-1.snapshot.1/V-Slot 20x20x500 Linear Rail.step', 'vslot_2020_500'],
   ['v-slot-gantry-plate-20mm-1.snapshot.1/V-Slot Gantry Plate 20mm.step', 'gantry_plate_20'],
   ['xtreme-solid-v-wheel-1.snapshot.1/Xtreme Solid V Wheel.step', 'xtreme_solid_v_wheel'],
+  // user_data/inbox/ additions (2026-11-13)
+  ['linear-rail-and-block-lml9b-1.snapshot.3/LML9B x 100mm/Linear Rail & Block LML9B.STEP', 'linear_rail_block_lml9b'],
+  ['user-library-GANTRY-PLATE-65-65/User Library-GANTRY-PLATE-65-65.STEP', 'gantry_plate_65_65'],
+  ['user-library-MINI-V-PLATE-1-KIT/User Library-MINI-V-PLATE-1-KIT.STEP', 'mini_v_plate_1_kit'],
+  ['user-library-PULLEY-WHEEL-KIT/User Library-PULLEY-WHEEL-KIT.STEP', 'pulley_wheel_kit'],
   // Printables, CC BY-NC-ND 4.0 (OpenBuilds): STL, one solid per file, at print origin
   [['lift-base', 'lift', 'preloader'].map((n) => `openbuilds-scribe-pen-lifter/openbuilds-scribe-${n}.stl`), 'scribe_pen_lifter'],
 ];
 let fail = 0;
 for (const [f, out] of jobs) {
   console.log(`\n== ${out}`);
-  const r = spawnSync(process.execPath, ['tools/step2glb.mjs', ...[f].flat().map((x) => A + x), 'models/' + out], { stdio: 'inherit' });
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'tools/step2glb.mjs'), ...[f].flat().map((x) => path.join(PARTS, x)), path.join(MODELS, out)], { stdio: 'inherit' });
   if (r.status) fail++;
 }
 process.exit(fail ? 1 : 0);

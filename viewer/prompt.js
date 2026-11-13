@@ -203,7 +203,7 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
     return [`[plotter viewer] ${getContext()}`, `Request: ${req}`,
       ...(refs.length ? ['References:', ...refs] : []),
       ...(toks.some((t) => t.t === 'chip' && t.ref.startsWith('lib:')) ? ['(lib:<slug> = a library part, used in the assembly JSON as {"part": "<slug>"}; lib:vslot-<profile> = a parametric V-Slot rail)'] : []),
-      'Read VOCABULARY.md, edit the assembly JSON, run `node tools/solve.mjs <file>` to check it.'].join('\n');
+      'Read docs/VOCABULARY.md, edit the assembly JSON, run `node tools/solve.mjs <file>` to check it.'].join('\n');
   }
 
   // ---- copy / clear ----

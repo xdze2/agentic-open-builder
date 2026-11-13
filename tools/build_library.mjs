@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Usage: node tools/build_library.mjs        (npm run library)
-// models/*/parts/*.glb + catalog.json  ->  library/<slug>/part.glb + part.json, library/index.json
+// user_data/models/*/parts/*.glb + catalog.json  ->  user_data/library/<slug>/part.glb + part.json, index.json (lib/paths.js)
 //
 // Deduplicates the per-solid meshes into unique part types and re-centres each into a canonical local frame.
 // Reads ONLY from models/. Units: mm.
@@ -28,9 +28,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Document, NodeIO } from '@gltf-transform/core';
 import { vslotPorts, profileOfDims } from '../lib/vslot_ports.js';
+import { MODELS, LIBRARY } from '../lib/paths.js';
 import { loadMesh, bbox, findHoles, sub, dot, cross, apply, applyT, r3 } from './lib_mesh.mjs';
 
-const MODELS = path.resolve('models'), OUT = path.resolve('library');
+const OUT = LIBRARY;
 const TOL = 0.15;
 const slug = (s) => s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
@@ -144,6 +145,32 @@ for (const model of fs.readdirSync(MODELS).sort()) {
     solids.push({ model, single: cat.solids.length === 1, cat: s, type, mesh: m, nrm: nrm && Float32Array.from(nrm) });
   }
 }
+// inbox/ models: duplicates of parts already in the library are dropped by name, and when an inbox solid
+// groups with an existing one it never becomes the representative (keeps existing part frames stable).
+const INBOX_MODELS = new Set(['linear_rail_block_lml9b', 'gantry_plate_65_65', 'mini_v_plate_1_kit', 'pulley_wheel_kit']);
+const DUPLICATES = new Set([
+  'D87DDA1E-1B82-48B1-A3F4-6126B0EE0258', // = V-Slot Gantry Plate 20mm (65.5 x 65.5 x 3)
+  'Mini V Gantry Plate',                  // = Mini V Wheel Plate (50 x 50 x 6)
+  'Mini Ball Bearing 105zz 5x10x4',       // = Ball Bearing 5 x 10 x 4.2
+  'Low Profile Screw M5_M5 x 25',         // = Low Profile Screw M5 9x9x26.5
+  'Mini V Wheel Precision Shim_По умолчанию', // = Precision Shim 8 x 5 x 1
+]);
+for (let i = solids.length - 1; i >= 0; i--) if (INBOX_MODELS.has(solids[i].model) && DUPLICATES.has(solids[i].cat.name)) solids.splice(i, 1);
+// the LML9B block is exported as 5 unnamed solids: merge them into one block part
+{
+  const frag = solids.filter((x) => x.model === 'linear_rail_block_lml9b' && !/^Linear Guide Rail/.test(x.cat.name));
+  if (frag.length > 1) {
+    const pos = [], idx = [], nrm = []; let base = 0, hasN = frag.every((f) => f.nrm);
+    for (const f of frag) { pos.push(...f.mesh.pos); idx.push(...Array.from(f.mesh.idx, (v) => v + base)); if (hasN) nrm.push(...f.nrm); base += f.mesh.pos.length / 3; }
+    const first = frag[0];
+    first.cat = { ...first.cat, name: 'Linear Guide Block LML9B', triangles: idx.length / 3 };
+    first.type = 'block';
+    first.mesh = { ...first.mesh, pos: Float32Array.from(pos), idx: Uint32Array.from(idx) };
+    first.nrm = hasN ? Float32Array.from(nrm) : null;
+    first.single = false;
+    for (const f of frag.slice(1)) solids.splice(solids.indexOf(f), 1);
+  }
+}
 console.log(`${solids.length} solids in ${new Set(solids.map((s) => s.model)).size} models`);
 
 // ---------------- frames + fingerprints ----------------
@@ -194,7 +221,8 @@ const parts = [];
 for (const g of groups) {
   // representative: override model > standalone model > most triangles
   const ov = OVERRIDES[slug(g.name)];
-  const rep = g.members.find((m) => ov && m.model === ov.model) || g.members.find((m) => m.single) || [...g.members].sort((a, b) => b.cat.triangles - a.cat.triangles)[0];
+  const pool = g.members.some((m) => !INBOX_MODELS.has(m.model)) ? g.members.filter((m) => !INBOX_MODELS.has(m.model)) : g.members;
+  const rep = pool.find((m) => ov && m.model === ov.model) || pool.find((m) => m.single) || [...pool].sort((a, b) => b.cat.triangles - a.cat.triangles)[0];
   const id = nameCount[slug(g.name)] > 1 ? `${slug(g.name)}-${rep.dims.map((v) => r1(v)).join('x')}` : slug(g.name);
   const dir = path.join(OUT, id);
   fs.mkdirSync(dir, { recursive: true });

@@ -1,6 +1,6 @@
 # Vocabulary: how we name things
 
-One shared language for the human, the viewer and an AI agent. The assembly is a JSON file in `assemblies/`; the solver is `lib/assembly.js`; `node tools/solve.mjs assemblies/<file>.json` prints the BOM and any error (the error lists the valid names). Units: mm and degrees.
+One shared language for the human, the viewer and an AI agent. The assembly is a JSON file in `user_data/assemblies/`; the solver is `lib/assembly.js`; `node tools/solve.mjs user_data/assemblies/<file>.json` prints the BOM and any error (the error lists the valid names). Units: mm and degrees.
 
 ## 1. World
 
@@ -22,9 +22,9 @@ Right-handed, **Z up**, seen from the front (the viewer's default camera looks f
 Every piece in `parts` has a human name (`rail`, `plate`, `beam`, `w1_wheel` ...). Letters, digits and `_` only (no `. / : @`). Names inside a sub-assembly are addressed `subname/instance` (`actuator/plate`). Mount-generated pieces are `<mount name>/screw_1`, `<mount name>/nut_1`.
 
 A part entry is one of:
-- `{"part": "<library slug>"}`, for instance `v-slot-gantry-plate-20-80mm`, `nema17-40`, `tee-nut`. The list is in `library/index.json` (viewer: Parts tab).
+- `{"part": "<library slug>"}`, for instance `v-slot-gantry-plate-20-80mm`, `nema17-40`, `tee-nut`. The list is in `user_data/library/index.json` (viewer: Parts tab).
 - `{"part": "vslot-20x20", "length": 500}`: a parametric V-slot cut to length (`vslot-20x20`, `vslot-20x40`, `vslot-20x60`). It shows up in the BOM as a cut length.
-- `{"assembly": "actuator_2060_500.json"}`: a sub-assembly (a file in `assemblies/`); it moves as one rigid group.
+- `{"assembly": "actuator_2060_500.json"}`: a sub-assembly (a file in `user_data/assemblies/`); it moves as one rigid group.
 
 Types: `rail`, `plate`, `wheel`, `motor`, `pulley`, `screw`, `nut`, `tee_nut`, `spacer`, `shim`, `bearing`, `block`.
 
@@ -124,4 +124,4 @@ The viewer never edits geometry. The Build tab has a prompt box to write a reque
 1. Type in the box (or click in it). Click a part, hole, port or plate edge in 3D: a **chip** is inserted at the caret (label such as `plate › edge +y`; the exact reference such as `actuator/plate.edge_+y` is stored in the chip, hover to see it). A click within 4 mm of a plate edge selects the edge; within 5 mm of a port or hole selects that; otherwise the whole instance. If the box is not the last thing you focused, the click only fills the **recent strip** (last 5 selections, click one to insert it at the caret).
 2. Typing `@` opens a list of instances (Tab/Enter/click inserts a chip; type `name.` to list that instance's ports and edges).
 3. **Copy prompt** puts a self-contained block on the clipboard (assembly file, current `state`, the request with chips written as `«label»`, and a References list with the exact refs and world positions/normals). Paste it into Claude Code. The box keeps its content (and a draft survives reloads in localStorage); **Clear** empties it.
-4. The agent edits `assemblies/*.json`; the viewer live-reloads (dev server).
+4. The agent edits `user_data/assemblies/*.json`; the viewer live-reloads (dev server).
