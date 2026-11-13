@@ -98,7 +98,7 @@ user_data/
   snaps/        snapshot output
 ```
 
-More details: [docs/HANDOFF.md](docs/HANDOFF.md).
+More details: [docs/HANDOFF.md](docs/HANDOFF.md). Ideas, open issues and a record of finished work: [backlog/](backlog/README.md).
 
 ## License
 
