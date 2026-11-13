@@ -115,6 +115,19 @@
     #pr-pop { position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 4px; z-index: 6; background: #fff; border: 1px solid var(--sl-color-neutral-300); border-radius: 6px; box-shadow: 0 4px 14px #0002; max-height: 200px; overflow: auto; }
     #pr-pop[hidden] { display: none; }
     #pr-pop .it { padding: 2px 8px; cursor: pointer; font-family: var(--sl-font-mono, monospace); font-size: 12px; } #pr-pop .it.on, #pr-pop .it:hover { background: var(--sl-color-primary-600); color: #fff; }
+    #pr-shots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; align-items: center; }
+    #pr-shot { width: 30px; height: 30px; border: 1px dashed var(--sl-color-neutral-400); border-radius: 6px; background: #fff; color: var(--sl-color-neutral-600); cursor: pointer; display: grid; place-items: center; font-size: 15px; padding: 0; }
+    #pr-shot:hover { border-color: var(--sl-color-primary-500); color: var(--sl-color-primary-600); background: var(--sl-color-primary-50); }
+    .shot { position: relative; height: 40px; cursor: pointer; }
+    .shot > img:first-child { height: 40px; width: auto; max-width: 90px; object-fit: cover; border: 1px solid var(--sl-color-neutral-300); border-radius: 4px; display: block; background: #f3f5f8; }
+    .shot:hover > img:first-child { border-color: var(--sl-color-primary-500); }
+    .shot.lost > img:first-child { visibility: hidden; } .shot.lost { width: 60px; background: repeating-linear-gradient(45deg, #eee 0 6px, #ddd 6px 12px); border-radius: 4px; }
+    .shot .n { position: absolute; left: 2px; top: 2px; background: #000a; color: #fff; font: 600 10px/14px var(--sl-font-sans, sans-serif); padding: 0 4px; border-radius: 3px; pointer-events: none; }
+    .shot .x { position: absolute; right: -6px; top: -6px; width: 16px; height: 16px; padding: 0; border: 1px solid var(--sl-color-neutral-300); border-radius: 50%; background: #fff; color: #b3261e; font-size: 9px; line-height: 1; cursor: pointer; opacity: 0; }
+    .shot:hover .x, .shot .x:focus-visible { opacity: 1; }
+    @media (hover: none) { .shot .x { opacity: 1; } }
+    .shot .big { display: none; position: absolute; left: 0; bottom: calc(100% + 8px); width: 360px; max-width: 70vw; height: auto; border: 1px solid var(--sl-color-neutral-300); border-radius: 6px; box-shadow: 0 6px 24px #0003; background: #f3f5f8; z-index: 7; pointer-events: none; }
+    .shot:hover .big { display: block; }
     #pr-btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
     #pr-status { font-size: 12px; }
 
@@ -190,8 +203,13 @@
             <div id="pr-wrap">
               <div id="pr-box" contenteditable="true" spellcheck="false" data-placeholder="Ask for a change. Click things in 3D (or + on a library part) to insert them, or type @ to pick an instance or a part."></div>
               <div id="pr-pop" hidden></div>
+              <div id="pr-shots"><button type="button" id="pr-shot" title="Add a screenshot of the current view"><sl-icon name="camera"></sl-icon></button></div>
             </div>
-            <div id="pr-btns"><sl-button id="pr-copy" size="small" variant="primary">Copy prompt</sl-button><sl-button id="pr-clear" size="small">Clear</sl-button><span id="pr-status"></span></div>
+            <div id="pr-btns">
+              <sl-button id="pr-send" size="small" variant="primary" title="Save the prompt + screenshots to user_data/prompts/ and copy a &quot;Read …&quot; line to paste into Claude Code">Send</sl-button>
+              <sl-button id="pr-copy" size="small" title="Copy the prompt as plain text (no screenshots)">Copy text</sl-button>
+              <sl-button id="pr-clear" size="small">Clear</sl-button><span id="pr-status"></span>
+            </div>
           </div>
         </div>
       </div>

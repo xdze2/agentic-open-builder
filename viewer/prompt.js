@@ -1,5 +1,8 @@
 // Prompt box, global to every view (part, assembly, STEP model): free text + clickable chips that carry exact references into the assembly JSON.
-// The viewer never edits geometry: this box only composes a request that is copied to the clipboard and pasted into Claude Code.
+// The viewer never edits geometry: this box only composes a request for Claude Code.
+// Send (dev server): writes user_data/prompts/<stamp>/{prompt.md, prompt.json, 1.png…} and copies "Read <dir>/prompt.md" to the clipboard.
+// Copy text: the request as plain text (no screenshots), works without the server.
+// Screenshots are uploaded to user_data/prompts/_draft/ when taken; the draft keeps their ids + camera.
 //
 // Chip = <span class="chip" contenteditable="false" data-ref="actuator/plate.edge_+y" data-label="plate › edge +y">.
 // A "selection" is {ref, label}. ref = "<instance>" or "<instance>.<port>" (exactly what goes into the JSON),
@@ -28,6 +31,8 @@ export function kindOf(ref) {
 
 // hooks (all optional): resolve(ref) -> {color} | null (null = ref no longer exists), hover(ref|null), focus(ref),
 //   describe(ref) -> string | undefined (details for refs the assembly does not know, e.g. lib:), library() -> [{ref, label, show}]
+//   capture() -> Promise<{blob, w, h, meta, line}> (screenshot of the view: meta = camera etc. for prompt.json, line = its description),
+//   view(meta) (put the camera back where a screenshot was taken)
 // getContext() -> first line of the copied prompt (what is on screen)
 export function createPrompt({ $, getResult, getContext, hooks = {} }) {
   const box = $('pr-box'), recentEl = $('pr-recent'), pop = $('pr-pop'), status = $('pr-status');
@@ -35,6 +40,8 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
   let armed = false;     // the box was the last thing focused: a 3D click inserts a chip
   let recent = [];
   let comp = null;       // @-completion state {items, idx}
+  let shots = [];        // screenshots of the draft: {id, w, h, meta, line}
+  const shotsEl = $('pr-shots');
 
   // ---- caret handling ----
   const inBox = (n) => n && box.contains(n);
@@ -167,13 +174,46 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
   function changed() {
     anchors();
     hooks.hover?.(null); // a hovered chip may just have been deleted: no mouseleave then
-    try { localStorage.setItem(KEY, JSON.stringify({ toks: tokens(), recent })); } catch (e) { /* storage may be blocked */ }
+    persist();
+  }
+  function persist() {
+    try { localStorage.setItem(KEY, JSON.stringify({ toks: tokens(), recent, shots })); } catch (e) { /* storage may be blocked */ }
   }
   try {
     const d = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (d) { fill(d.toks || []); recent = (d.recent || []).slice(0, RECENT_N); }
+    if (d) { fill(d.toks || []); recent = (d.recent || []).slice(0, RECENT_N); shots = d.shots || []; }
   } catch (e) { /* ignore */ }
   renderRecent();
+
+  // ---- screenshots ----
+  function renderShots() {
+    shotsEl.querySelectorAll('.shot').forEach((n) => n.remove());
+    shots.forEach((sh, i) => {
+      const d = document.createElement('div'); d.className = 'shot'; d.title = `Image ${i + 1}: ${sh.line}\nclick: back to this view`;
+      const img = document.createElement('img'); img.src = `prompts/_draft/${sh.id}.png`; img.alt = `image ${i + 1}`;
+      img.addEventListener('error', () => d.classList.add('lost'), { once: true });
+      const big = img.cloneNode(); big.className = 'big';
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = i + 1;
+      const x = document.createElement('button'); x.type = 'button'; x.className = 'x'; x.textContent = '\u2715'; x.title = 'Delete this screenshot';
+      x.addEventListener('click', (e) => { e.stopPropagation(); removeShot(sh); });
+      d.addEventListener('click', () => hooks.view?.(sh.meta));
+      d.append(img, big, n, x);
+      shotsEl.insertBefore(d, $('pr-shot'));
+    });
+  }
+  async function addShot() {
+    if (!hooks.capture) return;
+    try {
+      const { blob, w, h, meta, line } = await hooks.capture();
+      const r = await fetch('api/shot', { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: blob });
+      if (!r.ok) throw new Error(r.status === 404 ? 'needs the dev server (npm run dev)' : (await r.json().catch(() => ({}))).error || r.statusText);
+      shots.push({ id: (await r.json()).id, w, h, meta, line });
+      persist(); renderShots(); say(`screenshot ${shots.length} added`);
+    } catch (e) { say('screenshot failed: ' + e.message, true); }
+  }
+  function dropDraft(sh) { fetch('api/shot/' + sh.id, { method: 'DELETE' }).catch(() => {}); }
+  function removeShot(sh) { shots = shots.filter((x) => x !== sh); dropDraft(sh); persist(); renderShots(); }
+  $('pr-shot').addEventListener('click', addShot);
 
   // ---- reference details for the copied block ----
   function instOf(path) { return getResult()?.instances.find((i) => i.name === path); }
@@ -195,7 +235,8 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
       return `${d.slug}  world point ${vec(w)}, normal ${vec(n)}`;
     } catch (e) { return `${d.slug}  (${e.message.slice(0, 80)})`; }
   }
-  function buildText() {
+  /** images: text put where the screenshots are listed (Send passes the "{{IMAGES}}" placeholder the server fills in) */
+  function buildText(images) {
     const toks = tokens();
     const req = toks.map((t) => (t.t === 'chip' ? `«${t.label}»` : t.v)).join('').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
     const seen = new Set(), refs = [];
@@ -203,6 +244,7 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
     return [`[plotter viewer] ${getContext()}`, `Request: ${req}`,
       ...(refs.length ? ['References:', ...refs] : []),
       ...(toks.some((t) => t.t === 'chip' && t.ref.startsWith('lib:')) ? ['(lib:<slug> = a library part, used in the assembly JSON as {"part": "<slug>"}; lib:vslot-<profile> = a parametric V-Slot rail)'] : []),
+      ...(images ? ['Screenshots (open each one with the Read tool; orthographic views, so the scale is the same everywhere in an image):', images] : []),
       'Read docs/VOCABULARY.md, edit the assembly JSON, run `node tools/solve.mjs <file>` to check it.'].join('\n');
   }
 
@@ -215,16 +257,35 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
     let ok = false; try { ok = document.execCommand('copy'); } catch (e) { /* ignore */ }
     ta.remove(); return ok;
   }
+  async function toClipboard(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) { return fallbackCopy(text); }
+  }
   async function copy() {
     const text = buildText();
     window.__viewer.lastPrompt = text;
-    let ok = false;
-    try { await navigator.clipboard.writeText(text); ok = true; } catch (e) { ok = fallbackCopy(text); }
-    say(ok ? 'copied to clipboard' : 'copy failed, select the text manually', !ok);
+    const ok = await toClipboard(text);
+    say(ok ? `copied to clipboard${shots.length ? ' (text only: Send includes the screenshots)' : ''}` : 'copy failed, select the text manually', !ok);
     return text;
   }
+  async function sendPrompt() {
+    const md = buildText(shots.length ? '{{IMAGES}}' : null);
+    const json = { context: getContext(), request: tokens(), created: new Date().toISOString() };
+    try {
+      const r = await fetch('api/prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ md, json, shots: shots.map((s) => ({ id: s.id, line: s.line, meta: { w: s.w, h: s.h, ...s.meta } })) }) });
+      if (!r.ok) throw new Error(r.status === 404 ? 'needs the dev server (npm run dev); use Copy text' : (await r.json().catch(() => ({}))).error || r.statusText);
+      const { dir } = await r.json();
+      const line = `Read ${dir}/prompt.md`;
+      window.__viewer.lastPrompt = line;
+      const ok = await toClipboard(line);
+      say(ok ? `saved ${dir}, "Read …" copied: paste it to Claude` : `saved ${dir}/prompt.md (clipboard failed)`, !ok);
+      return dir;
+    } catch (e) { say('send failed: ' + e.message, true); }
+  }
+  $('pr-send').addEventListener('click', sendPrompt);
   $('pr-copy').addEventListener('click', copy);
-  $('pr-clear').addEventListener('click', () => { box.textContent = ''; saved = null; changed(); box.focus(); });
+  $('pr-clear').addEventListener('click', () => { box.textContent = ''; saved = null; shots.forEach(dropDraft); shots = []; renderShots(); changed(); box.focus(); });
+  renderShots();
 
   // ---- @ completion ----
   const closePop = () => { comp = null; pop.hidden = true; };
@@ -310,7 +371,7 @@ export function createPrompt({ $, getResult, getContext, hooks = {} }) {
   const ro = new ResizeObserver(place); ro.observe(host); ro.observe(dock);
   place();
 
-  return { pick, refresh, copy, buildText, tokens, insertChip, get armed() { return armed; } };
+  return { pick, refresh, copy, send: sendPrompt, addShot, get shots() { return shots; }, buildText, tokens, insertChip, get armed() { return armed; } };
 }
 
 export const short = (name) => name.split('/').pop().replace(/_/g, ' ');

@@ -45,7 +45,7 @@ A fresh clone has an empty viewer: put the CAD files in `user_data/parts/`, then
 - **Left:** a browser with Parts, Assemblies and STEP models tabs, with search, thumbnails and collapsible groups.
 - **Centre:** an orthographic 3D view with shadows and a scale bar. A toolbar at the top right holds zoom/fit, Iso/Top/Front/Right and a **View** dropdown (axes, grid, shadows, edge lines, port markers; remembered in localStorage).
 - **Right:** the assembly and part info. **Structure** tree (assembly > sub-assemblies > instances, with hide/isolate, filter and insert-in-prompt; synced with 3D clicks and hover), selection info with copy-ready references, joint sliders and mounts.
-- **Bottom:** a prompt box. Click parts, faces, edges or holes in 3D to insert them as chips, then copy the prompt into Claude Code.
+- **Bottom:** a prompt box. Click parts, faces, edges or holes in 3D to insert them as chips, add screenshots, then send the prompt to Claude Code.
 
 | Plotter (snapshot tool) | Bill of materials |
 |---|---|
@@ -58,9 +58,10 @@ A fresh clone has an empty viewer: put the CAD files in `user_data/parts/`, then
 ## Agent loop
 
 1. In the viewer, type a request and click the pieces it refers to.
-2. Press **Copy prompt** and paste it into Claude Code.
-3. The agent edits the assembly JSON, checks it with `tools/solve.mjs` and looks at `tools/snap.mjs` snapshots.
-4. The viewer reloads live.
+2. Optionally add screenshots of the view (camera button under the box).
+3. Press **Send**: the prompt and screenshots are saved to `user_data/prompts/<date>/` and a `Read …/prompt.md` line is copied. Paste it into Claude Code. (**Copy text** copies the prompt as plain text without screenshots, and works without the dev server.)
+4. The agent edits the assembly JSON, checks it with `tools/solve.mjs` and looks at `tools/snap.mjs` snapshots.
+5. The viewer reloads live.
 
 ## Sources and licenses
 

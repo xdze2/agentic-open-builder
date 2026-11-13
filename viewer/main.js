@@ -256,16 +256,43 @@ function partSel(pt) {
   const near = best && best.d < Math.max(3, 0.08 * Math.max(size.x, size.y, size.z));
   return near ? { ref: `lib:${slug}.${best.q.name}`, label: `${name} › ${portWords(best.q.name)}` } : { ref: 'lib:' + slug, label: name };
 }
+function promptContext() {
+  if (mode === 'build' && build) return `assembly: user_data/assemblies/${build.file()}   state: ${JSON.stringify(build.state() || {})}`;
+  if (mode === 'part' && curSlug) return isProfile(curSlug) ? `viewing parametric rail V-Slot ${curSlug.slice(6)} (${railLen} mm)` : `viewing library part: user_data/library/${curSlug}/part.json`;
+  if (mode === 'model' && current) return `viewing STEP model: user_data/models/${current.id}`;
+  return 'no item open';
+}
+// ---- screenshots for the prompt: the WebGL canvas, downscaled to <= SHOT_MAX px, + the camera to describe / restore it ----
+const SHOT_MAX = 1600;
+const viewName = (d) => Object.entries(VIEWS).find(([, v]) => new THREE.Vector3(...v).normalize().dot(d) > 0.999)?.[0];
+async function captureView() {
+  renderer.render(scene, camera); // read back in the same task as the render (no preserveDrawingBuffer needed)
+  const src = renderer.domElement, k = Math.min(1, SHOT_MAX / Math.max(src.width, src.height));
+  const c = document.createElement('canvas'); c.width = Math.round(src.width * k); c.height = Math.round(src.height * k);
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+  const t = controls.target, dir = camera.position.clone().sub(t).normalize(), up = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
+  const mmPerPx = src.width / c.width / (camera.zoom * renderer.getPixelRatio()); // ortho: camera.zoom = CSS px per mm
+  const r3 = (v) => v.toArray().map((x) => +x.toFixed(3)), name = viewName(dir);
+  const meta = { context: promptContext(), hash: location.hash, camera: { target: r3(t), dir: r3(dir), up: r3(up), zoom: +camera.zoom.toFixed(5), view: name || null }, mm_per_px: +mmPerPx.toFixed(4) };
+  const line = `${c.width}×${c.height} px, ${meta.context.split('   ')[0]}; looking from ${name ? name + ' ' : ''}[${r3(dir).map((x) => x.toFixed(2)).join(', ')}] at [${r3(t).map((x) => x.toFixed(1)).join(', ')}] mm (image centre), ${mmPerPx.toFixed(3)} mm per px`;
+  return { blob, w: c.width, h: c.height, meta, line };
+}
+function restoreView(meta) {
+  if (!meta?.camera) return;
+  if (meta.hash && meta.hash !== location.hash) { location.hash = meta.hash; return; } // other item: open it first (click again for the view)
+  const { target, dir, zoom } = meta.camera, d = camera.position.distanceTo(controls.target);
+  controls.target.set(...target);
+  camera.position.set(...target).addScaledVector(new THREE.Vector3(...dir), d);
+  camera.zoom = zoom; camera.updateProjectionMatrix(); camera.lookAt(controls.target); controls.update();
+}
 const prompt = createPrompt({
   $,
   getResult: () => (mode === 'build' ? build?.result : null),
-  getContext: () => {
-    if (mode === 'build' && build) return `assembly: user_data/assemblies/${build.file()}   state: ${JSON.stringify(build.state() || {})}`;
-    if (mode === 'part' && curSlug) return isProfile(curSlug) ? `viewing parametric rail V-Slot ${curSlug.slice(6)} (${railLen} mm)` : `viewing library part: user_data/library/${curSlug}/part.json`;
-    if (mode === 'model' && current) return `viewing STEP model: user_data/models/${current.id}`;
-    return 'no item open';
-  },
+  getContext: promptContext,
   hooks: {
+    capture: captureView,
+    view: restoreView,
     resolve: (ref) => {
       if (!ref.startsWith('lib:')) return build ? build.resolveRef(ref) : undefined;
       if (!libIndex) return undefined;

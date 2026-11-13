@@ -11,13 +11,13 @@ Build an assembled 3D model of a pen plotter made from OpenBuilds parts, before 
 - **The viewer is for looking and pointing; it never edits geometry.** The user explicitly does not want to drift into a CAD program. The AI agent edits `user_data/assemblies/*.json`, and the viewer live-reloads.
 - **Loop:**
   1. Open an assembly, type the request in the prompt box and click pieces in 3D to insert chips.
-  2. Press **Copy prompt** and paste into Claude Code.
+  2. Optionally add screenshots, press **Send** and paste the copied `Read user_data/prompts/<stamp>/prompt.md` line into Claude Code.
   3. The agent edits the JSON and checks it with `node tools/solve.mjs <file>`.
   4. The view updates.
   
   The first real test ("move the beam until the mount") worked; the user found it "works well, and simple".
 - Agent = Claude Code only, no API. Mistral may come later, which would need a benchmark: plain-text requests + expected `solve.mjs` results.
-- Prompt transport is the **clipboard** by choice ("less hacky"). A SEND button writing to a queue file (via a dev-server POST endpoint) was discussed and postponed.
+- Prompt transport: **Send** POSTs to the dev server (`/api/prompt`, `/api/shot` in vite.config.js), which writes one folder per prompt in `user_data/prompts/` (prompt.md + prompt.json + PNGs); only a short `Read …` line goes through the clipboard. Images stay PNG files on disk (not base64) so the agent can see them. **Copy text** keeps the old clipboard-only path. Next step planned: drawing on the view (arrows, boxes, numbered pins anchored to 3D points) before capture.
 - The user likes big work delegated to subagents to save tokens. Commit only when asked.
 
 ## Current design (`user_data/assemblies/plotter.json`)
